@@ -14,6 +14,9 @@ vllm serve QuantTrio/Qwen3.6-27B-AWQ \
   --reasoning-parser qwen3 \
   --trust-remote-code \
   --language-model-only \
+  --default-chat-template-kwargs '{"enable_thinking":false}' \
+  --override-generation-config '{"max_new_tokens":8192}' \
+  --enable-prefix-caching \
   --max-model-len 16384 \
   --cpu-offload-gb 16 \
   --max-num-seqs 16 \
