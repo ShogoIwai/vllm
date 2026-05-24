@@ -17,9 +17,9 @@ vllm serve QuantTrio/Qwen3.6-27B-AWQ \
   --default-chat-template-kwargs '{"enable_thinking":false}' \
   --override-generation-config '{"max_new_tokens":8192}' \
   --enable-prefix-caching \
-  --max-model-len 16384 \
+  --max-model-len 32768 \
   --cpu-offload-gb 16 \
-  --max-num-seqs 16 \
+  --max-num-seqs 8 \
   --gpu-memory-utilization 0.94 \
   --host 0.0.0.0 \
   --port 8000
