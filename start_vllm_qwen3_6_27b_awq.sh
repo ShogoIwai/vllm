@@ -18,7 +18,7 @@ vllm serve QuantTrio/Qwen3.6-27B-AWQ \
   --override-generation-config '{"max_new_tokens":8192}' \
   --enable-prefix-caching \
   --max-model-len 32768 \
-  --cpu-offload-gb 16 \
+  --cpu-offload-gb 8 \
   --max-num-seqs 8 \
   --gpu-memory-utilization 0.94 \
   --host 0.0.0.0 \
