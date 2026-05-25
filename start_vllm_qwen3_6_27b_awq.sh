@@ -15,11 +15,11 @@ vllm serve QuantTrio/Qwen3.6-27B-AWQ \
   --trust-remote-code \
   --language-model-only \
   --default-chat-template-kwargs '{"enable_thinking":false}' \
-  --override-generation-config '{"max_new_tokens":8192}' \
+  --override-generation-config '{"max_new_tokens":4096}' \
   --enable-prefix-caching \
-  --max-model-len 32768 \
+  --max-model-len 131072 \
   --cpu-offload-gb 8 \
-  --max-num-seqs 8 \
+  --max-num-seqs 2 \
   --gpu-memory-utilization 0.94 \
   --host 0.0.0.0 \
   --port 8000
