@@ -94,8 +94,8 @@ tools are needed.
   "small_model": "openai/local-model-qwen3.6-27b-awq",
   "default_agent": "local",
   "compaction": {
-    "auto": false,
-    "prune": false
+    "auto": true,
+    "prune": true
   },
   "agent": {
     "local": {
@@ -136,24 +136,6 @@ tools are needed.
         "question": false
       }
     },
-    "general": {
-      "model": "openai/local-model-qwen3.6-27b-awq",
-      "temperature": 0.6,
-      "top_p": 0.95,
-      "tools": {
-        "bash": false,
-        "read": false,
-        "glob": false,
-        "grep": false,
-        "edit": false,
-        "write": false,
-        "task": false,
-        "webfetch": false,
-        "todowrite": false,
-        "skill": false,
-        "question": false
-      }
-    },
     "plan": {
       "model": "openai/local-model-qwen3.6-27b-awq",
       "temperature": 0.6,
@@ -171,36 +153,6 @@ tools are needed.
         "skill": false,
         "question": false
       }
-    },
-    "explore": {
-      "model": "openai/local-model-qwen3.6-27b-awq",
-      "temperature": 0.6,
-      "top_p": 0.95,
-      "tools": {
-        "bash": true,
-        "read": true,
-        "glob": true,
-        "grep": true,
-        "edit": false,
-        "write": false,
-        "task": false,
-        "webfetch": false,
-        "todowrite": false,
-        "skill": false,
-        "question": false
-      }
-    },
-    "title": {
-      "model": "openai/local-model-qwen3.6-27b-awq",
-      "disable": true,
-      "temperature": 0.6,
-      "top_p": 0.95
-    },
-    "summary": {
-      "model": "openai/local-model-qwen3.6-27b-awq",
-      "disable": true,
-      "temperature": 0.6,
-      "top_p": 0.95
     },
     "compaction": {
       "model": "openai/local-model-qwen3.6-27b-awq",
