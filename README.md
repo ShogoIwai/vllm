@@ -15,8 +15,8 @@ sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B
 | --------------------------------------- | ------------------------------------------------------------------ |
 | `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script — Qwen2.5-Coder-14B (fast, default)    |
 | `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 10GB) |
-| `sourceme`                            | bash/sh env vars (`export`)                                        |
-| `sourceme.csh`                        | tcsh env vars (`setenv`)                                           |
+| `sourceme`                            | bash/sh env vars (`export`)                                      |
+| `sourceme.csh`                        | tcsh env vars (`setenv`)                                         |
 | `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001)        |
 | `README.md`                           | This file                                                          |
 
@@ -95,7 +95,7 @@ python vllm/proxy.py
 
 If a client sends `max_tokens > 8192`, the proxy silently caps it to `8192`. To use it, set `baseURL` in opencode config to `http://localhost:8001/v1` if the proxy exposes OpenAI-compatible `/v1` routes.
 
-The proxy is **optional** — the vLLM startup script already sets `max_new_tokens=4096` in `override-generation-config`, making the proxy unnecessary for opencode. It remains useful for clients that do not respect the server-side generation config.
+The proxy is **optional** — the vLLM startup script already sets `max_new_tokens=8192` in `override-generation-config`, making the proxy unnecessary for opencode. It remains useful for clients that do not respect the server-side generation config.
 
 ---
 
@@ -107,13 +107,13 @@ Key flags used in `start_vllm_qwen2_5_coder_14b_awq.sh`:
 | -------------------------------- | ------------------------------------- | ---------------------------------------------- |
 | `--served-model-name`          | `local-model-qwen2.5-coder-14b-awq` | Model name exposed via API                     |
 | `--enable-auto-tool-choice`    | —                                    | Enable function/tool calling                   |
-| `--tool-call-parser`           | `hermes`                            | Qwen2.5 tool format parser                     |
+| `--tool-call-parser`           | qwen3_coder                           | Qwen2.5 tool format parser                     |
 | `--trust-remote-code`          | —                                    | Allow custom model code from HuggingFace       |
 | `--language-model-only`        | —                                    | Skip multimodal pipeline overhead              |
-| `--override-generation-config` | `{"max_new_tokens":4096}`           | Server-side generation token limit             |
+| `--override-generation-config` | `{"max_new_tokens":8192}`           | Server-side generation token limit             |
 | `--max-model-len`              | `32768`                             | Context window (model max_position_embeddings) |
 | `--max-num-seqs`               | `4`                                 | Max concurrent sequences                       |
-| `--gpu-memory-utilization`     | `0.92`                              | VRAM usage target                              |
+| `--gpu-memory-utilization`     | `0.94`                              | VRAM usage target                              |
 | `--enable-prefix-caching`      | —                                    | Cache common prefix for speed                  |
 
 ## Environment Variables
