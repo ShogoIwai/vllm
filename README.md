@@ -15,7 +15,7 @@ Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → 
 | File                                    | Description                                                          |
 | --------------------------------------- | -------------------------------------------------------------------- |
 | `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script — Qwen2.5-Coder-14B (fast, default)      |
-| `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 10GB)   |
+| `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 8GB)    |
 | `sourceme`                            | bash/sh env vars (`export`)                                        |
 | `sourceme.csh`                        | tcsh env vars (`setenv`)                                           |
 | `mcp_qwen.py`                         | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
@@ -111,7 +111,7 @@ Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `conne
 
 ### Usage
 
-Just ask Claude Code normally — it will call Qwen automatically for suitable tasks. You can also be explicit: "Qwenに聞いて" or "ask Qwen to …".
+Just ask Claude Code normally — it will call Qwen automatically for suitable tasks. You can also be explicit: "ask Qwen to …".
 
 **Good fit:** boilerplate, short snippet explanation, comment translation, test stubs
 **Not suitable:** tasks needing file access, multi-step reasoning, or tool use
