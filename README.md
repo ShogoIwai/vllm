@@ -1,10 +1,13 @@
-# Qwen2.5-Coder-14B-AWQ + vLLM + opencode Setup
+# Qwen2.5-Coder-14B-AWQ + vLLM Setup
 
-Run `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ` on a single RTX 3090 24GB via vLLM and consume it as an OpenAI-compatible API from [opencode](https://opencode.ai).
+Run `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ` on a single RTX 3090 24GB via vLLM and consume it as an OpenAI-compatible API from various clients.
 
 ```
-opencode → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
 ```
+
+**Recommended client: Cline** (VS Code extension). opencode hangs on large files due to client-side token counting; sgpt works well for quick CLI tasks.
 
 ## Directory Contents
 
@@ -12,8 +15,8 @@ opencode → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instru
 | --------------------------------------- | ----------------------------------------------------------- |
 | `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script (current)                        |
 | `start_vllm_qwen3_6_27b_awq.sh`       | Legacy startup script for Qwen3.6-27B-AWQ                   |
-| `proxy.py`                             | Legacy max_tokens-capping proxy for Claude Code (port 8001) |
-| `README.md`                            | This file                                                   |
+| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001) |
+| `README.md`                           | This file                                                   |
 
 ## Requirements
 
@@ -27,7 +30,6 @@ opencode → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instru
 
 ```bash
 pip install vllm==0.21.0
-pip install flashinfer        # MOE optimization
 ```
 
 ### 2. Authenticate with Hugging Face
@@ -42,141 +44,31 @@ Get a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/
 ### 3. Start vLLM Server
 
 ```bash
-cd /mnt/hdd/edgeai/rep/vllm
 ./start_vllm_qwen2_5_coder_14b_awq.sh
 ```
 
 The server listens on `http://0.0.0.0:8000`.
 
-### 4. Install opencode
+### 4. Configure Cline (Recommended)
 
-```bash
-npm install -g opencode-ai
-# or
-curl -fsSL https://opencode.ai/install | sh
+[Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a VS Code extension. Install it from the Extensions marketplace, then configure:
+
+| Field        | Value                                 |
+| ------------ | ------------------------------------- |
+| API Provider | `OpenAI Compatible`                 |
+| Base URL     | `http://localhost:8000/v1`          |
+| API Key      | `dummy`                             |
+| Model ID     | `local-model-qwen2.5-coder-14b-awq` |
+
+### 5. Configure sgpt (CLI option)
+
+```tcsh
+pip install shell-gpt
+source souceme
+sgpt --model local-model-qwen2.5-coder-14b-awq "hello"
 ```
 
-### 5. Configure opencode
-
-Create `~/.config/opencode/config.json`.
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "openai": {
-      "name": "Local vLLM",
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "apiKey": "dummy",
-        "baseURL": "http://localhost:8000/v1"
-      },
-      "models": {
-        "local-model-qwen2.5-coder-14b-awq": {
-          "name": "Qwen2.5 Coder 14B AWQ",
-          "family": "qwen",
-          "tool_call": true,
-          "temperature": true,
-          "limit": {
-            "context": 32768,
-            "output": 4096
-          }
-        }
-      }
-    }
-  },
-  "model": "openai/local-model-qwen2.5-coder-14b-awq",
-  "small_model": "openai/local-model-qwen2.5-coder-14b-awq",
-  "default_agent": "local",
-  "compaction": {
-    "auto": true,
-    "prune": true
-  },
-  "agent": {
-    "local": {
-      "model": "openai/local-model-qwen2.5-coder-14b-awq",
-      "mode": "primary",
-      "description": "Lightweight local chat agent without tools.",
-      "temperature": 0.6,
-      "top_p": 0.95,
-      "tools": {
-        "bash": false,
-        "read": false,
-        "glob": false,
-        "grep": false,
-        "edit": false,
-        "write": false,
-        "task": false,
-        "webfetch": false,
-        "todowrite": false,
-        "skill": false,
-        "question": false
-      }
-    },
-    "build": {
-      "model": "openai/local-model-qwen2.5-coder-14b-awq",
-      "temperature": 0.6,
-      "top_p": 0.95,
-      "tools": {
-        "bash": true,
-        "read": true,
-        "glob": true,
-        "grep": true,
-        "edit": true,
-        "write": true,
-        "task": false,
-        "webfetch": false,
-        "todowrite": false,
-        "skill": false,
-        "question": false
-      }
-    },
-    "plan": {
-      "model": "openai/local-model-qwen2.5-coder-14b-awq",
-      "temperature": 0.6,
-      "top_p": 0.95,
-      "tools": {
-        "bash": false,
-        "read": false,
-        "glob": false,
-        "grep": false,
-        "edit": false,
-        "write": false,
-        "task": false,
-        "webfetch": false,
-        "todowrite": false,
-        "skill": false,
-        "question": false
-      }
-    },
-    "compaction": {
-      "model": "openai/local-model-qwen2.5-coder-14b-awq",
-      "temperature": 0.6,
-      "top_p": 0.95
-    }
-  },
-  "mcp": {
-    "notion": {
-      "type": "local",
-      "command": ["npx", "-y", "@notionhq/notion-mcp-server"],
-      "environment": {
-        "NOTION_TOKEN": "YOUR_NOTION_TOKEN"
-      },
-      "enabled": false
-    }
-  }
-}
-```
-
-Notes:
-
-- `baseURL` must include `/v1`; otherwise opencode will call
-  `/chat/completions` instead of `/v1/chat/completions`.
-- `small_model` is set explicitly so opencode does not fall back to a hosted
-  model such as `gpt-5-nano` for title/summary/compaction tasks.
-- Automatic compaction is enabled (`"auto": true, "prune": true`). Use `/compact` to trigger manually.
-- Notion MCP is disabled by default because its tool schema is large and slows
-  local inference. Enable it only when needed.
+---
 
 ## proxy.py Usage
 
@@ -197,22 +89,24 @@ If a client sends `max_tokens > 8192`, the proxy silently caps it to `8192`. To 
 
 The proxy is **optional** — the vLLM startup script already sets `max_new_tokens=4096` in `override-generation-config`, making the proxy unnecessary for opencode. It remains useful for clients that do not respect the server-side generation config.
 
+---
+
 ## vLLM Server Options
 
 Key flags used in `start_vllm_qwen2_5_coder_14b_awq.sh`:
 
-| Flag                             | Value                                  | Purpose                                  |
-| -------------------------------- | -------------------------------------- | ---------------------------------------- |
-| `--served-model-name`          | `local-model-qwen2.5-coder-14b-awq`  | Model name exposed via API               |
-| `--enable-auto-tool-choice`    | —                                     | Enable function/tool calling             |
-| `--tool-call-parser`           | `hermes`                              | Qwen2.5 tool format parser               |
-| `--trust-remote-code`          | —                                     | Allow custom model code from HuggingFace |
-| `--language-model-only`        | —                                     | Skip multimodal pipeline overhead        |
-| `--override-generation-config` | `{"max_new_tokens":4096}`            | Server-side generation token limit       |
-| `--max-model-len`              | `32768`                               | Context window (model max_position_embeddings) |
-| `--max-num-seqs`               | `4`                                   | Max concurrent sequences                 |
-| `--gpu-memory-utilization`     | `0.92`                                | VRAM usage target                        |
-| `--enable-prefix-caching`      | —                                     | Cache common prefix for speed            |
+| Flag                             | Value                                 | Purpose                                        |
+| -------------------------------- | ------------------------------------- | ---------------------------------------------- |
+| `--served-model-name`          | `local-model-qwen2.5-coder-14b-awq` | Model name exposed via API                     |
+| `--enable-auto-tool-choice`    | —                                    | Enable function/tool calling                   |
+| `--tool-call-parser`           | `hermes`                            | Qwen2.5 tool format parser                     |
+| `--trust-remote-code`          | —                                    | Allow custom model code from HuggingFace       |
+| `--language-model-only`        | —                                    | Skip multimodal pipeline overhead              |
+| `--override-generation-config` | `{"max_new_tokens":4096}`           | Server-side generation token limit             |
+| `--max-model-len`              | `32768`                             | Context window (model max_position_embeddings) |
+| `--max-num-seqs`               | `4`                                 | Max concurrent sequences                       |
+| `--gpu-memory-utilization`     | `0.92`                              | VRAM usage target                              |
+| `--enable-prefix-caching`      | —                                    | Cache common prefix for speed                  |
 
 ## Environment Variables
 
@@ -223,18 +117,3 @@ Set in the startup script:
 - `VLLM_USE_FLASHINFER_MOE_FP16=0`
 - `VLLM_USE_FLASHINFER_SAMPLER=0`
 - `OMP_NUM_THREADS=4`
-
-## Verification
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "local-model-qwen2.5-coder-14b-awq",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "max_tokens": 128
-  }'
-
-opencode --version
-opencode --model openai/local-model-qwen2.5-coder-14b-awq --agent local
-```

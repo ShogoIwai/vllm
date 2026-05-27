@@ -10,7 +10,7 @@ export OMP_NUM_THREADS=4
 vllm serve Qwen/Qwen2.5-Coder-14B-Instruct-AWQ \
   --served-model-name local-model-qwen2.5-coder-14b-awq \
   --enable-auto-tool-choice \
-  --tool-call-parser hermes \
+  --tool-call-parser qwen3_coder \
   --trust-remote-code \
   --language-model-only \
   --override-generation-config '{"max_new_tokens":4096}' \
