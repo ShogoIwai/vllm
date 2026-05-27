@@ -3,9 +3,9 @@
 Run `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ` on a single RTX 3090 24GB via vLLM and consume it as an OpenAI-compatible API from various clients.
 
 ```
-Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ  ← Recommended
-Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
 sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ  ← Recommended
 ```
 
 **Recommended client: Claude Code MCP** — offloads lightweight tasks to Qwen while keeping Claude API tokens for complex reasoning. Cline is a good alternative for VS Code users; sgpt works well for quick CLI queries.
@@ -18,8 +18,8 @@ sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B
 | `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 10GB)   |
 | `sourceme`                            | bash/sh env vars (`export`)                                        |
 | `sourceme.csh`                        | tcsh env vars (`setenv`)                                           |
-| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
 | `mcp_qwen.py`                         | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
+| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
 | `README.md`                           | This file                                                            |
 
 ## Requirements
@@ -67,7 +67,7 @@ source vllm/sourceme.csh
 sgpt "hello"
 ```
 
-### 5. Configure Cline (Recommended)
+### 5. Configure Cline
 
 [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a VS Code extension. Install it from the Extensions marketplace, then configure:
 
@@ -93,7 +93,7 @@ Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen2.5-Coder-14B
 **1. Register the MCP server:**
 
 ```bash
-claude mcp add -s user qwen-local python3 /mnt/hdd/edgeai/rep/vllm/mcp_qwen.py
+claude mcp add -s user qwen-local python3 vllm/mcp_qwen.py
 ```
 
 The `-s user` flag installs it globally (all projects). Omit it for project-local registration.
