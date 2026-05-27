@@ -1,3 +1,10 @@
-setenv OPENAI_API_KEY dummy
-setenv OPENAI_API_HOST http://localhost:8000/v1
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=dummy
 
+# Configure sgpt to use local vLLM server
+_sgptrc="${HOME}/.config/shell_gpt/.sgptrc"
+if [ -f "${_sgptrc}" ]; then
+    sed -i 's|^API_BASE_URL=.*|API_BASE_URL=http://localhost:8000/v1|' "${_sgptrc}"
+    sed -i 's|^DEFAULT_MODEL=.*|DEFAULT_MODEL=local-model-qwen2.5-coder-14b-awq|' "${_sgptrc}"
+fi
+unset _sgptrc

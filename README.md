@@ -11,12 +11,14 @@ sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B
 
 ## Directory Contents
 
-| File                                    | Description                                                 |
-| --------------------------------------- | ----------------------------------------------------------- |
-| `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script (current)                        |
-| `start_vllm_qwen3_6_27b_awq.sh`       | Legacy startup script for Qwen3.6-27B-AWQ                   |
-| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001) |
-| `README.md`                           | This file                                                   |
+| File                                    | Description                                                        |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script — Qwen2.5-Coder-14B (fast, default)    |
+| `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 10GB) |
+| `sourceme`                            | bash/sh env vars (`export`)                                        |
+| `sourceme.csh`                        | tcsh env vars (`setenv`)                                           |
+| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001)        |
+| `README.md`                           | This file                                                          |
 
 ## Requirements
 
@@ -62,10 +64,16 @@ The server listens on `http://0.0.0.0:8000`.
 
 ### 5. Configure sgpt (CLI option)
 
-```tcsh
-pip install shell-gpt
-source souceme
-sgpt --model local-model-qwen2.5-coder-14b-awq "hello"
+sgpt reads `API_BASE_URL` from `~/.config/shell_gpt/.sgptrc` — make sure it is set to `http://localhost:8000/v1` (not `default`). `DEFAULT_MODEL` should also be set to the local model name.
+
+```bash
+# bash / sh
+source vllm/sourceme
+sgpt "hello"
+
+# tcsh
+source vllm/sourceme.csh
+sgpt "hello"
 ```
 
 ---
