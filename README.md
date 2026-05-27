@@ -3,22 +3,24 @@
 Run `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ` on a single RTX 3090 24GB via vLLM and consume it as an OpenAI-compatible API from various clients.
 
 ```
-sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ  ← Recommended
 Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
 ```
 
-**Recommended client: Cline** (VS Code extension). opencode hangs on large files due to client-side token counting; sgpt works well for quick CLI tasks.
+**Recommended client: Claude Code MCP** — offloads lightweight tasks to Qwen while keeping Claude API tokens for complex reasoning. Cline is a good alternative for VS Code users; sgpt works well for quick CLI queries.
 
 ## Directory Contents
 
-| File                                    | Description                                                        |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script — Qwen2.5-Coder-14B (fast, default)    |
-| `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 10GB) |
-| `sourceme`                            | bash/sh env vars (`export`)                                      |
-| `sourceme.csh`                        | tcsh env vars (`setenv`)                                         |
-| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001)        |
-| `README.md`                           | This file                                                          |
+| File                                    | Description                                                          |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| `start_vllm_qwen2_5_coder_14b_awq.sh` | vLLM server startup script — Qwen2.5-Coder-14B (fast, default)      |
+| `start_vllm_qwen3_6_27b_awq.sh`       | vLLM server startup script — Qwen3.6-27B (slow, cpu-offload 10GB)   |
+| `sourceme`                            | bash/sh env vars (`export`)                                        |
+| `sourceme.csh`                        | tcsh env vars (`setenv`)                                           |
+| `proxy.py`                            | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
+| `mcp_qwen.py`                         | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
+| `README.md`                           | This file                                                            |
 
 ## Requirements
 
@@ -75,6 +77,46 @@ sgpt "hello"
 | Base URL     | `http://localhost:8000/v1`          |
 | API Key      | `dummy`                             |
 | Model ID     | `local-model-qwen2.5-coder-14b-awq` |
+
+---
+
+## Claude Code MCP Integration (Recommended)
+
+`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. Lightweight tasks are routed to Qwen, saving Claude API tokens for complex reasoning.
+
+```
+Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen2.5-Coder-14B
+```
+
+### Setup (one-time)
+
+**1. Register the MCP server:**
+
+```bash
+claude mcp add -s user qwen-local python3 /mnt/hdd/edgeai/rep/vllm/mcp_qwen.py
+```
+
+The `-s user` flag installs it globally (all projects). Omit it for project-local registration.
+
+**2. Verify:**
+
+Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `connected`.
+
+### Available tools
+
+| Tool              | Best for                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| `ask_qwen`      | General questions, code explanations, summaries, translations      |
+| `ask_qwen_code` | Boilerplate generation, stub implementations, language translation |
+
+### Usage
+
+Just ask Claude Code normally — it will call Qwen automatically for suitable tasks. You can also be explicit: "Qwenに聞いて" or "ask Qwen to …".
+
+**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs
+**Not suitable:** tasks needing file access, multi-step reasoning, or tool use
+
+> **Requires** the vLLM server to be running (`./start_vllm_qwen2_5_coder_14b_awq.sh`).
 
 ---
 
