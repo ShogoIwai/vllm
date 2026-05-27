@@ -179,7 +179,7 @@ Notes:
   `/chat/completions` instead of `/v1/chat/completions`.
 - `small_model` is set explicitly so opencode does not fall back to a hosted
   model such as `gpt-5-nano` for title/summary/compaction tasks.
-- Automatic compaction is disabled. Use `/compact` manually if needed.
+- Automatic compaction is enabled (`"auto": true, "prune": true`). Use `/compact` to trigger manually.
 - Notion MCP is disabled by default because its tool schema is large and slows
   local inference. Enable it only when needed.
 
@@ -212,6 +212,8 @@ Key flags used in `start_vllm_qwen3_6_27b_awq.sh`:
 | `--enable-auto-tool-choice`      | —                              | Enable function/tool calling             |
 | `--tool-call-parser`             | `qwen3_coder`                 | Qwen3 tool format parser                 |
 | `--reasoning-parser`             | `qwen3`                       | Qwen3 reasoning format parser            |
+| `--trust-remote-code`            | —                              | Allow custom model code from HuggingFace |
+| `--language-model-only`          | —                              | Skip multimodal pipeline overhead        |
 | `--default-chat-template-kwargs` | `{"enable_thinking":false}`   | Disable chain-of-thought thinking tokens |
 | `--override-generation-config`   | `{"max_new_tokens":4096}`     | Server-side generation token limit       |
 | `--max-model-len`                | `131072`                      | Context window                           |
@@ -224,6 +226,7 @@ Key flags used in `start_vllm_qwen3_6_27b_awq.sh`:
 
 Set in the startup script:
 
+- `CUDA_HOME=/usr`
 - `VLLM_USE_DEEP_GEMM=0`
 - `VLLM_USE_FLASHINFER_MOE_FP16=1`
 - `VLLM_USE_FLASHINFER_SAMPLER=0`
