@@ -13,10 +13,10 @@ vllm serve Qwen/Qwen2.5-Coder-14B-Instruct-AWQ \
   --tool-call-parser qwen3_coder \
   --trust-remote-code \
   --language-model-only \
-  --override-generation-config '{"max_new_tokens":4096}' \
+  --override-generation-config '{"max_new_tokens":8192}' \
   --enable-prefix-caching \
   --max-model-len 32768 \
   --max-num-seqs 4 \
-  --gpu-memory-utilization 0.92 \
+  --gpu-memory-utilization 0.94 \
   --host 0.0.0.0 \
   --port 8000
