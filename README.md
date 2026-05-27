@@ -3,8 +3,8 @@
 Run `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ` on a single RTX 3090 24GB via vLLM and consume it as an OpenAI-compatible API from various clients.
 
 ```
-Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
 sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
+Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen2.5-Coder-14B-Instruct-AWQ
 ```
 
 **Recommended client: Cline** (VS Code extension). opencode hangs on large files due to client-side token counting; sgpt works well for quick CLI tasks.
@@ -51,18 +51,7 @@ Get a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/
 
 The server listens on `http://0.0.0.0:8000`.
 
-### 4. Configure Cline (Recommended)
-
-[Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a VS Code extension. Install it from the Extensions marketplace, then configure:
-
-| Field        | Value                                 |
-| ------------ | ------------------------------------- |
-| API Provider | `OpenAI Compatible`                 |
-| Base URL     | `http://localhost:8000/v1`          |
-| API Key      | `dummy`                             |
-| Model ID     | `local-model-qwen2.5-coder-14b-awq` |
-
-### 5. Configure sgpt (CLI option)
+### 4. Configure sgpt (CLI option)
 
 sgpt reads `API_BASE_URL` from `~/.config/shell_gpt/.sgptrc` — make sure it is set to `http://localhost:8000/v1` (not `default`). `DEFAULT_MODEL` should also be set to the local model name.
 
@@ -75,6 +64,17 @@ sgpt "hello"
 source vllm/sourceme.csh
 sgpt "hello"
 ```
+
+### 5. Configure Cline (Recommended)
+
+[Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a VS Code extension. Install it from the Extensions marketplace, then configure:
+
+| Field        | Value                                 |
+| ------------ | ------------------------------------- |
+| API Provider | `OpenAI Compatible`                 |
+| Base URL     | `http://localhost:8000/v1`          |
+| API Key      | `dummy`                             |
+| Model ID     | `local-model-qwen2.5-coder-14b-awq` |
 
 ---
 
