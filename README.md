@@ -2,30 +2,33 @@
 
 The goal of this repository is to build a workflow that connects the following tools.
 
-| Tool | Role |
-| ---- | ---- |
-| **Claude Code** | AI coding assistant (CLI) |
-| **Codex** | AI coding assistant (Claude Code plugin) |
-| **vLLM + Qwen** | Local LLM server (OpenAI-compatible API) |
+| Tool                   | Role                                          |
+| ---------------------- | --------------------------------------------- |
+| **Claude Code**  | AI coding assistant (CLI)                     |
+| **Codex**        | AI coding assistant (Claude Code plugin)      |
+| **vLLM + Qwen**  | Local LLM server (OpenAI-compatible API)      |
 | **sgpt / Cline** | Clients for standalone local LLM verification |
 
 ## Workflow Overview
 
 ```
 Claude Code ──── review-gate integration ──── Codex
-     │
+     │                                           │
      └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8000) ──── Qwen model
-                               ↑
-sgpt (CLI)      → OpenAI API ──┤
-Cline (VS Code) → OpenAI API ──┘
+                               ↑               ↑
+sgpt (CLI)      → OpenAI API ──┤               │
+Cline (VS Code) → OpenAI API ──┘    Codex ─────┘ (MCP stdio, same server)
 ```
 
 **Reducing token / message consumption:**
-- **Claude Code**: When switched to a lightweight model (e.g. Haiku), core inference is delegated to the local Qwen via MCP. This minimizes Claude API token consumption while maintaining output quality.
-- **Codex**: Token consumption is reduced by lowering review depth via review-gate options such as `--review-effort=minimal`. There is no direct delegation path from Codex to Qwen.
+
+- **Claude Code**: When switched to a lightweight model (e.g. Haiku), core inference can be delegated to the local Qwen via MCP. This minimizes Claude API token consumption while maintaining output quality.
+- **Codex**: Delegation depends on the active cloud model. With `gpt-5.4-mini`, Codex acts as a routing/orchestration layer and delegates core reasoning and generation to local Qwen. With stronger GPT-5.x models, Codex normally delegates only simple subtasks such as boilerplate generation, comment translation, and short summaries.
 
 **Standalone local LLM verification:**
 sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server and Qwen model independently of Claude Code.
+
+---
 
 ## Available Models
 
@@ -42,17 +45,69 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)     |
 | `start_vllm_qwen3_6_27b_awq.sh`         | vLLM startup — Qwen3.6-27B (128K ctx, cpu-offload 8 GB)             |
 | `start_vllm_qwen2_5_coder_14b_awq.sh`   | vLLM startup — Qwen2.5-Coder-14B (32K ctx, fast)                    |
+| `proxy.py`                              | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
 | `sourceme`                              | bash/sh env vars (`export`)                                        |
 | `sourceme.csh`                          | tcsh env vars (`setenv`)                                           |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
-| `proxy.py`                              | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
 | `README.md`                             | This file                                                            |
+
+---
 
 ## Requirements
 
 - Python 3.9+, CUDA 12.x
 - NVIDIA GPU with ≥16 GB VRAM (RTX 4080 / 3090 / 4090 / A6000)
 - vLLM 0.21.0
+
+## vLLM Server Options
+
+Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
+
+| Flag                             | Value                                   | Purpose                                                  |
+| -------------------------------- | --------------------------------------- | -------------------------------------------------------- |
+| `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                               |
+| `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                             |
+| `--tool-call-parser`           | `qwen3_coder`                         | Qwen3 tool format parser                                 |
+| `--trust-remote-code`          | —                                      | Allow custom model code from HuggingFace                 |
+| `--language-model-only`        | —                                      | Skip multimodal pipeline overhead                        |
+| `--override-generation-config` | `{"max_new_tokens":8192}`             | Server-side generation token limit                       |
+| `--max-model-len`              | `131072`                              | Context window (128K)                                    |
+| `--cpu-offload-gb`             | `2`                                   | Offload 2 GB of weights to CPU RAM for KV cache headroom |
+| `--max-num-seqs`               | `2`                                   | Max concurrent sequences                                 |
+| `--kv-cache-dtype`             | `fp8`                                 | FP8 KV cache to reduce VRAM usage                        |
+| `--gpu-memory-utilization`     | `0.95`                                | VRAM usage target                                        |
+| `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)      |
+
+## Environment Variables
+
+Set in the startup scripts:
+
+- `CUDA_HOME=/usr`
+- `VLLM_USE_DEEP_GEMM=0`
+- `VLLM_USE_FLASHINFER_MOE_FP16=0`
+- `VLLM_USE_FLASHINFER_SAMPLER=0`
+- `OMP_NUM_THREADS=4`
+
+---
+
+## proxy.py Usage
+
+`proxy.py` is a legacy FastAPI proxy that caps `max_tokens` to prevent context overflow in clients that send excessive token limits. It sits between the client and vLLM on port 8001:
+
+```
+opencode → proxy :8001 → vLLM :8000
+```
+
+Start it:
+
+```bash
+python vllm/proxy.py
+# Listening on http://0.0.0.0:8001
+```
+
+If a client sends `max_tokens > 8192`, the proxy silently caps it to `8192`. The proxy is **optional** — the vLLM startup scripts already set `max_new_tokens=8192` via `override-generation-config`.
+
+---
 
 ## Quick Start
 
@@ -105,11 +160,9 @@ sgpt "hello"
 | API Key      | `dummy`                               |
 | Model ID     | `local-model-qwen3-coder-30b-a3b-awq` |
 
----
-
 ## Claude Code MCP Integration (Recommended)
 
-`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. Lightweight tasks are routed to Qwen, saving Claude API tokens for complex reasoning.
+`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. When Claude Code runs on a lightweight model such as Haiku, routing rules can delegate core reasoning and generation to Qwen while Claude Code handles file I/O, tool calls, and orchestration.
 
 ```
 Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B-A3B
@@ -138,7 +191,7 @@ Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `conne
 
 ### Usage
 
-Just ask Claude Code normally — it will call Qwen automatically for suitable tasks. You can also be explicit: "ask Qwen to …".
+Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
 
 **Good fit:** boilerplate, short snippet explanation, comment translation, test stubs
 **Not suitable:** tasks needing file access, multi-step reasoning, or tool use
@@ -147,30 +200,87 @@ Just ask Claude Code normally — it will call Qwen automatically for suitable t
 
 To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
 
+## Codex MCP Integration (Recommended)
+
+The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can then call
+`ask_qwen` / `ask_qwen_code` during its runs to offload work to the local GPU,
+reducing OpenAI API token consumption.
+
+```
+Codex CLI → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B-A3B
+```
+
+### Setup (one-time)
+
+**1. Register the MCP server:**
+
+```bash
+codex mcp add qwen-local -- python3 $REP/vllm/mcp_qwen.py
+```
+
+This writes a `[mcp_servers.qwen-local]` entry to `~/.codex/config.toml` globally.
+
+**2. Verify:**
+
+```bash
+codex mcp list
+# qwen-local  python3  .../mcp_qwen.py  -  enabled
+```
+
+**3. Add delegation rules to `~/.codex/AGENTS.md`:**
+
+The `AGENTS.md` file is loaded by Codex at the start of each session. Add rules there to instruct
+Codex on when to delegate to Qwen (see the file for current rules).
+
+### Routing modes
+
+| Active Codex model                 | Codex role                   | Qwen delegation scope                                                                                 |
+| ---------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `gpt-5.4-mini` / `gpt5.4-mini` | Routing and orchestration    | Delegate Q&A, summaries, translation, code generation, refactoring, tests, and file-context reasoning |
+| Stronger GPT-5.x models            | Primary reasoning/generation | Delegate only simple, self-contained subtasks                                                         |
+
+For `gpt-5.4-mini`, Codex should read/search files locally, pass the relevant content to Qwen, apply the returned edits, and run verification commands. Qwen does not access files by path; it receives only text provided by Codex.
+
+For stronger GPT-5.x models, the key routing logic is:
+
+| Task type                                                    | Tool to use                         |
+| ------------------------------------------------------------ | ----------------------------------- |
+| Boilerplate/stub generation, language translation            | `ask_qwen_code(language, prompt)` |
+| Comment/docstring translation, short explanations, summaries | `ask_qwen(prompt)`                |
+| Multi-step reasoning, architecture, cross-file analysis      | Codex handles directly              |
+
 ---
 
-## Case Study: Haiku Delegation Mode
+## Case Study: Lightweight Delegation Mode
 
-Switching Claude Code to the cheaper **Haiku** model cuts API costs significantly, but Haiku has lower reasoning capability than Sonnet/Opus. The delegation pattern solves this: when Haiku is active, it routes generation and reasoning tasks to the local Qwen model via MCP, **minimizing Claude API token consumption while keeping output quality high**.
+Lightweight cloud models can be used as orchestration layers while local Qwen performs the core reasoning and generation. This pattern applies to both **Claude Code with Haiku** and **Codex with `gpt-5.4-mini`**.
 
 ### Architecture
 
 ```
-User → Claude Code (Haiku) → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
+User → Claude Code (Haiku)     → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
+User → Codex (gpt-5.4-mini)   → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
 ```
 
-Haiku acts as an orchestrator — handling file I/O and tool calls — while Qwen handles the actual generation and reasoning.
+The cloud model handles orchestration: reading files, running searches, applying edits, and verifying results. Qwen handles the text-in/text-out reasoning or generation step.
 
-### CLAUDE.md Configuration
+### Configuration locations
 
-Add rules like the following to `~/.claude/CLAUDE.md` to control Haiku's behavior automatically when that model is active.
+| Client      | Lightweight model trigger                             | Routing rules file      |
+| ----------- | ----------------------------------------------------- | ----------------------- |
+| Claude Code | Model ID contains `haiku`                           | `~/.claude/CLAUDE.md` |
+| Codex       | Model ID contains `gpt-5.4-mini` or `gpt5.4-mini` | `~/.codex/AGENTS.md`  |
+
+### Shared routing rules
+
+Add rules like the following to the appropriate configuration file.
 
 ```markdown
-## Haiku Delegation Mode
+## Lightweight Delegation Mode
 
-When your model ID contains "haiku":
+When your model ID matches a lightweight routing model:
 
-**Goal:** Minimize Claude API token consumption by delegating to the local Qwen model via MCP.
+**Goal:** Minimize cloud API token consumption by delegating core reasoning and generation to the local Qwen model via MCP.
 
 ### Routing Rules
 
@@ -178,11 +288,13 @@ When your model ID contains "haiku":
    → `ask_qwen(prompt=<full user message>)` — return verbatim
 
 2. **Code generation / refactoring / unit tests**
-   → `ask_qwen_code(language=<lang>, prompt=<full user message>)` — return verbatim
+   → `ask_qwen_code(language=<lang>, prompt=<full user message and required context>)` — return verbatim
 
 3. **Tasks requiring file context (read-then-ask pattern)**
-   → Haiku reads the file with Read/Bash → passes the full text content as part of the prompt to `ask_qwen` / `ask_qwen_code` → applies the result with Edit/Write
-   → Qwen itself does **not** access the filesystem; it receives only the text Haiku provides
+   → The cloud model reads/searches files with local tools
+   → It passes the relevant content to `ask_qwen` / `ask_qwen_code`
+   → It applies Qwen's result and runs verification
+   → Qwen itself does **not** access the filesystem; it receives only the text provided in the prompt
    → If total content exceeds ~8K tokens, process one file at a time
 
 > **Not supported by `ask_qwen` / `ask_qwen_code`:**
@@ -203,14 +315,14 @@ When your model ID contains "haiku":
 
 ### Benefits
 
-- Claude API charges reduced to near zero (only file I/O and MCP orchestration run on Haiku)
+- Cloud API charges reduced substantially because only file I/O, MCP orchestration, and verification run on the cloud model
 - Code generation, explanation, and refactoring run entirely on local GPU
-- Output quality approaches Sonnet for generation tasks
+- The same local model behavior is shared across Claude Code and Codex
 
 ### Caveats
 
-- Haiku must not generate or reason on its own — breaking the delegation rules wastes API tokens
-- Return `ask_qwen` / `ask_qwen_code` output verbatim; do not add Haiku commentary on top
+- The lightweight cloud model should not perform the core generation or reasoning itself; breaking the delegation rules wastes API tokens
+- Return `ask_qwen` / `ask_qwen_code` output directly unless a short operational note is needed
 - Requires both the MCP server (`mcp_qwen.py`) and the vLLM server to be running
 
 ---
@@ -268,53 +380,3 @@ Add the following to `~/.claude/settings.json`. Claude Code runs it automaticall
 The hook matches `rg` processes by **session ID (SID)**. SID is inherited from the parent at fork and does not change when a process becomes orphaned — so even after `codex-companion.mjs` exits and `rg` is reparented to init, it retains the Claude Code session's SID.
 
 > **Best-effort:** this is not a perfect filter. `rg` processes started from the same terminal session that launched Claude Code share the same SID and would also be killed. In practice this trade-off is acceptable — intentional long-running `rg` searches in the same terminal as an active Claude Code session are rare.
-
----
-
-## proxy.py Usage
-
-`proxy.py` is a legacy FastAPI proxy that caps `max_tokens` to prevent context overflow in clients that send excessive token limits. It sits between the client and vLLM on port 8001:
-
-```
-opencode → proxy :8001 → vLLM :8000
-```
-
-Start it:
-
-```bash
-python vllm/proxy.py
-# Listening on http://0.0.0.0:8001
-```
-
-If a client sends `max_tokens > 8192`, the proxy silently caps it to `8192`. The proxy is **optional** — the vLLM startup scripts already set `max_new_tokens=8192` via `override-generation-config`.
-
----
-
-## vLLM Server Options
-
-Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
-
-| Flag                             | Value                                   | Purpose                                                  |
-| -------------------------------- | --------------------------------------- | -------------------------------------------------------- |
-| `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                               |
-| `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                             |
-| `--tool-call-parser`           | `qwen3_coder`                         | Qwen3 tool format parser                                 |
-| `--trust-remote-code`          | —                                      | Allow custom model code from HuggingFace                 |
-| `--language-model-only`        | —                                      | Skip multimodal pipeline overhead                        |
-| `--override-generation-config` | `{"max_new_tokens":8192}`             | Server-side generation token limit                       |
-| `--max-model-len`              | `131072`                              | Context window (128K)                                    |
-| `--cpu-offload-gb`             | `2`                                   | Offload 2 GB of weights to CPU RAM for KV cache headroom |
-| `--max-num-seqs`               | `2`                                   | Max concurrent sequences                                 |
-| `--kv-cache-dtype`             | `fp8`                                 | FP8 KV cache to reduce VRAM usage                        |
-| `--gpu-memory-utilization`     | `0.95`                                | VRAM usage target                                        |
-| `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)      |
-
-## Environment Variables
-
-Set in the startup scripts:
-
-- `CUDA_HOME=/usr`
-- `VLLM_USE_DEEP_GEMM=0`
-- `VLLM_USE_FLASHINFER_MOE_FP16=0`
-- `VLLM_USE_FLASHINFER_SAMPLER=0`
-- `OMP_NUM_THREADS=4`
