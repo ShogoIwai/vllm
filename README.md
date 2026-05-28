@@ -132,6 +132,72 @@ To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
 
 ---
 
+## Case Study: Haiku Delegation Mode
+
+Switching Claude Code to the cheaper **Haiku** model cuts API costs significantly, but Haiku has lower reasoning capability than Sonnet/Opus. The delegation pattern solves this: when Haiku is active, it routes generation and reasoning tasks to the local Qwen model via MCP, **minimizing Claude API token consumption while keeping output quality high**.
+
+### Architecture
+
+```
+User → Claude Code (Haiku) → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
+```
+
+Haiku acts as an orchestrator — handling file I/O and tool calls — while Qwen handles the actual generation and reasoning.
+
+### CLAUDE.md Configuration
+
+Add rules like the following to `~/.claude/CLAUDE.md` to control Haiku's behavior automatically when that model is active.
+
+```markdown
+## Haiku Delegation Mode
+
+When your model ID contains "haiku":
+
+**Goal:** Minimize Claude API token consumption by delegating to the local Qwen model via MCP.
+
+### Routing Rules
+
+1. **Q&A / explanation / summary / translation**
+   → `ask_qwen(prompt=<full user message>)` — return verbatim
+
+2. **Code generation / refactoring / unit tests**
+   → `ask_qwen_code(language=<lang>, prompt=<full user message>)` — return verbatim
+
+3. **Tasks requiring file context (read-then-ask pattern)**
+   → Haiku reads the file with Read/Bash → passes the full text content as part of the prompt to `ask_qwen` / `ask_qwen_code` → applies the result with Edit/Write
+   → Qwen itself does **not** access the filesystem; it receives only the text Haiku provides
+   → If total content exceeds ~8K tokens, process one file at a time
+
+> **Not supported by `ask_qwen` / `ask_qwen_code`:**
+> tasks that require tool use, filesystem access inside Qwen, or stateful multi-step reasoning across calls.
+> These are single-shot text-in / text-out calls.
+```
+
+### Token Limits
+
+| Limit | Value | Source |
+| ----- | ----- | ------ |
+| Output per call (client) | **2,048 tokens** | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
+| Output ceiling (server) | 8,192 tokens | `--override-generation-config max_new_tokens:8192` |
+| Context window | **128K tokens** | `--max-model-len 131072` |
+| Effective input budget | **≤ ~126K tokens** | 131072 − 2048 |
+
+**Practical guideline:** keep each `ask_qwen` prompt under ~8K tokens for fast responses. For large files, pass one file per call and combine results yourself.
+
+### Benefits
+
+- Claude API charges reduced to near zero (only file I/O and MCP orchestration run on Haiku)
+- Code generation, explanation, and refactoring run entirely on local GPU
+- Output quality approaches Sonnet for generation tasks
+
+### Caveats
+
+- Haiku must not generate or reason on its own — breaking the delegation rules wastes API tokens
+- Return `ask_qwen` / `ask_qwen_code` output verbatim; do not add Haiku commentary on top
+- Requires both the MCP server (`mcp_qwen.py`) and the vLLM server to be running
+
+---
+
 ## proxy.py Usage
 
 `proxy.py` is a legacy FastAPI proxy that caps `max_tokens` to prevent context overflow in clients that send excessive token limits. It sits between the client and vLLM on port 8001:
