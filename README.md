@@ -12,11 +12,11 @@ Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → 
 
 ## Available Models
 
-| Script                                    | Model                                       | Context | VRAM  | Notes                            |
-| ----------------------------------------- | ------------------------------------------- | ------- | ----- | -------------------------------- |
+| Script                                    | Model                                          | Context | VRAM  | Notes                                                   |
+| ----------------------------------------- | ---------------------------------------------- | ------- | ----- | ------------------------------------------------------- |
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | `QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ` | 128K    | 16 GB | **Default.** MoE 30B/3B-active, multi-file coding |
-| `start_vllm_qwen3_6_27b_awq.sh`         | `QuantTrio/Qwen3.6-27B-AWQ`                 | 128K    | 16 GB | General purpose, reasoning       |
-| `start_vllm_qwen2_5_coder_14b_awq.sh`   | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ`      | 32K     | 16 GB | Lightweight, fast startup        |
+| `start_vllm_qwen3_6_27b_awq.sh`         | `QuantTrio/Qwen3.6-27B-AWQ`                  | 128K    | 16 GB | General purpose, reasoning                              |
+| `start_vllm_qwen2_5_coder_14b_awq.sh`   | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ`        | 32K     | 16 GB | Lightweight, fast startup                               |
 
 ## Directory Contents
 
@@ -25,11 +25,11 @@ Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → 
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)     |
 | `start_vllm_qwen3_6_27b_awq.sh`         | vLLM startup — Qwen3.6-27B (128K ctx, cpu-offload 8 GB)             |
 | `start_vllm_qwen2_5_coder_14b_awq.sh`   | vLLM startup — Qwen2.5-Coder-14B (32K ctx, fast)                    |
-| `sourceme`                               | bash/sh env vars (`export`)                                          |
-| `sourceme.csh`                           | tcsh env vars (`setenv`)                                             |
-| `mcp_qwen.py`                            | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools     |
-| `proxy.py`                               | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
-| `README.md`                              | This file                                                            |
+| `sourceme`                              | bash/sh env vars (`export`)                                        |
+| `sourceme.csh`                          | tcsh env vars (`setenv`)                                           |
+| `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
+| `proxy.py`                              | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
+| `README.md`                             | This file                                                            |
 
 ## Requirements
 
@@ -81,12 +81,12 @@ sgpt "hello"
 
 [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a VS Code extension. Install it from the Extensions marketplace, then configure:
 
-| Field        | Value                                        |
-| ------------ | -------------------------------------------- |
-| API Provider | `OpenAI Compatible`                        |
-| Base URL     | `http://localhost:8000/v1`                 |
-| API Key      | `dummy`                                    |
-| Model ID     | `local-model-qwen3-coder-30b-a3b-awq`     |
+| Field        | Value                                   |
+| ------------ | --------------------------------------- |
+| API Provider | `OpenAI Compatible`                   |
+| Base URL     | `http://localhost:8000/v1`            |
+| API Key      | `dummy`                               |
+| Model ID     | `local-model-qwen3-coder-30b-a3b-awq` |
 
 ---
 
@@ -175,12 +175,12 @@ When your model ID contains "haiku":
 
 ### Token Limits
 
-| Limit | Value | Source |
-| ----- | ----- | ------ |
-| Output per call (client) | **2,048 tokens** | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
-| Output ceiling (server) | 8,192 tokens | `--override-generation-config max_new_tokens:8192` |
-| Context window | **128K tokens** | `--max-model-len 131072` |
-| Effective input budget | **≤ ~126K tokens** | 131072 − 2048 |
+| Limit                    | Value                     | Source                                                 |
+| ------------------------ | ------------------------- | ------------------------------------------------------ |
+| Output per call (client) | **2,048 tokens**    | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
+| Output ceiling (server)  | 8,192 tokens              | `--override-generation-config max_new_tokens:8192`   |
+| Context window           | **128K tokens**     | `--max-model-len 131072`                             |
+| Effective input budget   | **≤ ~126K tokens** | 131072 − 2048                                         |
 
 **Practical guideline:** keep each `ask_qwen` prompt under ~8K tokens for fast responses. For large files, pass one file per call and combine results yourself.
 
@@ -195,6 +195,62 @@ When your model ID contains "haiku":
 - Haiku must not generate or reason on its own — breaking the delegation rules wastes API tokens
 - Return `ask_qwen` / `ask_qwen_code` output verbatim; do not add Haiku commentary on top
 - Requires both the MCP server (`mcp_qwen.py`) and the vLLM server to be running
+
+---
+
+## Tips: Review Gate Token Reduction Strategies
+
+When Codex Review Gate is enabled, tokens are consumed heavily during each adversarial review. Currently, the following two methods are applied.
+
+### Active Reduction Methods
+
+#### ① `--review-effort=minimal` (High token reduction)
+
+```bash
+/codex:setup --review-effort=minimal
+```
+
+Significantly reduces token consumption by minimizing review depth.
+
+#### ② `--runtime=shared` (Speed improvement)
+
+```bash
+/codex:setup --runtime=shared
+```
+
+Reduces sandbox startup overhead and enables resource reuse across multiple turns.
+
+---
+
+## Tips: Codex stop-review-gate rg Process Lingering Issue
+
+Codex's `stop-review-gate` hook spawns `codex-companion.mjs`, which scans the repository with `rg .`. After the task completes or times out, child `rg` processes can remain orphaned — keeping load average elevated.
+
+### Fix: Claude Code `Stop` Hook
+
+Add the following to `~/.claude/settings.json`. Claude Code runs it automatically when each session ends, killing any lingering `rg` processes before they accumulate.
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MY_SID=$(ps -p $$ -o sid= 2>/dev/null | tr -d ' '); pgrep -u \"$(id -un)\" rg 2>/dev/null | while read p; do [ \"$(ps -p $p -o sid= 2>/dev/null | tr -d ' ')\" = \"$MY_SID\" ] && kill $p 2>/dev/null; done; true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook matches `rg` processes by **session ID (SID)**. SID is inherited from the parent at fork and does not change when a process becomes orphaned — so even after `codex-companion.mjs` exits and `rg` is reparented to init, it retains the Claude Code session's SID.
+
+> **Best-effort:** this is not a perfect filter. `rg` processes started from the same terminal session that launched Claude Code share the same SID and would also be killed. In practice this trade-off is acceptable — intentional long-running `rg` searches in the same terminal as an active Claude Code session are rare.
 
 ---
 
@@ -221,20 +277,20 @@ If a client sends `max_tokens > 8192`, the proxy silently caps it to `8192`. The
 
 Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 
-| Flag                             | Value                                      | Purpose                                        |
-| -------------------------------- | ------------------------------------------ | ---------------------------------------------- |
-| `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq`   | Model name exposed via API                     |
-| `--enable-auto-tool-choice`    | —                                          | Enable function/tool calling                   |
-| `--tool-call-parser`           | `qwen3_coder`                            | Qwen3 tool format parser                       |
-| `--trust-remote-code`          | —                                          | Allow custom model code from HuggingFace       |
-| `--language-model-only`        | —                                          | Skip multimodal pipeline overhead              |
-| `--override-generation-config` | `{"max_new_tokens":8192}`                | Server-side generation token limit             |
-| `--max-model-len`              | `131072`                                 | Context window (128K)                          |
-| `--cpu-offload-gb`             | `2`                                      | Offload 2 GB of weights to CPU RAM for KV cache headroom |
-| `--max-num-seqs`               | `2`                                      | Max concurrent sequences                       |
-| `--kv-cache-dtype`             | `fp8`                                    | FP8 KV cache to reduce VRAM usage              |
-| `--gpu-memory-utilization`     | `0.95`                                   | VRAM usage target                              |
-| `--enable-prefix-caching`      | —                                          | Cache common prefix (effective for multi-file work) |
+| Flag                             | Value                                   | Purpose                                                  |
+| -------------------------------- | --------------------------------------- | -------------------------------------------------------- |
+| `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                               |
+| `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                             |
+| `--tool-call-parser`           | `qwen3_coder`                         | Qwen3 tool format parser                                 |
+| `--trust-remote-code`          | —                                      | Allow custom model code from HuggingFace                 |
+| `--language-model-only`        | —                                      | Skip multimodal pipeline overhead                        |
+| `--override-generation-config` | `{"max_new_tokens":8192}`             | Server-side generation token limit                       |
+| `--max-model-len`              | `131072`                              | Context window (128K)                                    |
+| `--cpu-offload-gb`             | `2`                                   | Offload 2 GB of weights to CPU RAM for KV cache headroom |
+| `--max-num-seqs`               | `2`                                   | Max concurrent sequences                                 |
+| `--kv-cache-dtype`             | `fp8`                                 | FP8 KV cache to reduce VRAM usage                        |
+| `--gpu-memory-utilization`     | `0.95`                                | VRAM usage target                                        |
+| `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)      |
 
 ## Environment Variables
 
