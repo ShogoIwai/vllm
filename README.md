@@ -14,10 +14,14 @@ The goal of this repository is to build a workflow that connects the following t
 ```
 Claude Code ──── review-gate integration ──── Codex
      │                                           │
+     │                                        MCP (stdio)
+     │                                           │
+     │                                        mcp_qwen.py (same script with Claude code)
+     │                                           │
      └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8000) ──── Qwen model
-                               ↑               ↑
-sgpt (CLI)      → OpenAI API ──┤               │
-Cline (VS Code) → OpenAI API ──┘    Codex ─────┘ (MCP stdio, same server)
+                               ↑
+sgpt (CLI)      → OpenAI API ──┤
+Cline (VS Code) → OpenAI API ──┘
 ```
 
 **Reducing token / message consumption:**
@@ -160,7 +164,7 @@ sgpt "hello"
 | API Key      | `dummy`                               |
 | Model ID     | `local-model-qwen3-coder-30b-a3b-awq` |
 
-## Claude Code MCP Integration (Recommended)
+## 6. Claude Code MCP Integration (Recommended)
 
 `mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. When Claude Code runs on a lightweight model such as Haiku, routing rules can delegate core reasoning and generation to Qwen while Claude Code handles file I/O, tool calls, and orchestration.
 
@@ -200,7 +204,7 @@ Just ask Claude Code normally — it will call Qwen automatically when the confi
 
 To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
 
-## Codex MCP Integration (Recommended)
+## 7. Codex MCP Integration (Recommended)
 
 The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can then call
 `ask_qwen` / `ask_qwen_code` during its runs to offload work to the local GPU,
