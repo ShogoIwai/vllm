@@ -1,14 +1,31 @@
-# Local Qwen + vLLM Setup
+# Local LLM Workflow — vLLM + Claude Code + Codex
 
-Run quantized Qwen models on a single GPU via vLLM and consume them as an OpenAI-compatible API from various clients.
+The goal of this repository is to build a workflow that connects the following tools.
+
+| Tool | Role |
+| ---- | ---- |
+| **Claude Code** | AI coding assistant (CLI) |
+| **Codex** | AI coding assistant (Claude Code plugin) |
+| **vLLM + Qwen** | Local LLM server (OpenAI-compatible API) |
+| **sgpt / Cline** | Clients for standalone local LLM verification |
+
+## Workflow Overview
 
 ```
-sgpt (CLI)      → OpenAI compatible API → vLLM (:8000) → Qwen model
-Cline (VS Code) → OpenAI compatible API → vLLM (:8000) → Qwen model
-Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → Qwen model  ← Recommended
+Claude Code ──── review-gate integration ──── Codex
+     │
+     └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8000) ──── Qwen model
+                               ↑
+sgpt (CLI)      → OpenAI API ──┤
+Cline (VS Code) → OpenAI API ──┘
 ```
 
-**Recommended client: Claude Code MCP** — offloads lightweight tasks to Qwen while keeping Claude API tokens for complex reasoning. Cline is a good alternative for VS Code users; sgpt works well for quick CLI queries.
+**Reducing token / message consumption:**
+- **Claude Code**: When switched to a lightweight model (e.g. Haiku), core inference is delegated to the local Qwen via MCP. This minimizes Claude API token consumption while maintaining output quality.
+- **Codex**: Token consumption is reduced by lowering review depth via review-gate options such as `--review-effort=minimal`. There is no direct delegation path from Codex to Qwen.
+
+**Standalone local LLM verification:**
+sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server and Qwen model independently of Claude Code.
 
 ## Available Models
 
