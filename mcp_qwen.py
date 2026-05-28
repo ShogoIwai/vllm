@@ -5,7 +5,7 @@ from mcp.server.fastmcp import FastMCP
 from openai import OpenAI
 
 VLLM_BASE_URL = "http://localhost:8000/v1"
-MODEL_ID = "local-model-qwen2.5-coder-14b-awq"
+MODEL_ID = "local-model-qwen3-coder-30b-a3b-awq"
 
 mcp = FastMCP("qwen-local")
 client = OpenAI(base_url=VLLM_BASE_URL, api_key="dummy")
