@@ -33,6 +33,7 @@ Claude Code     → MCP (stdio)           → mcp_qwen.py  → vLLM (:8000) → 
 ### 1. Install vLLM
 
 ```bash
+sudo apt install nvidia-cuda-toolkit # if necessary
 pip install vllm==0.21.0
 ```
 
@@ -93,7 +94,7 @@ Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen2.5-Coder-14B
 **1. Register the MCP server:**
 
 ```bash
-claude mcp add -s user qwen-local python3 vllm/mcp_qwen.py
+claude mcp add -s user qwen-local python3 $REP/vllm/mcp_qwen.py
 ```
 
 The `-s user` flag installs it globally (all projects). Omit it for project-local registration.
