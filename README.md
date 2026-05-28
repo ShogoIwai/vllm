@@ -16,7 +16,7 @@ Claude Code ──── review-gate integration ──── Codex
      │                                           │
      │                                        MCP (stdio)
      │                                           │
-     │                                        mcp_qwen.py (same script with Claude code)
+     │                                        mcp_qwen.py (same script used by Claude Code)
      │                                           │
      └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8000) ──── Qwen model
                                ↑
@@ -197,8 +197,8 @@ Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `conne
 
 Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
 
-**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs
-**Not suitable:** tasks needing file access, multi-step reasoning, or tool use
+**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs, file-context tasks (Claude reads files and passes content to Qwen)
+**Not suitable for Qwen directly:** tasks requiring Qwen itself to access the filesystem, call tools, or maintain state across calls — for those, Claude Code reads/searches files with its own tools and passes only the relevant text to Qwen
 
 > **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
 
@@ -231,27 +231,27 @@ codex mcp list
 # qwen-local  python3  .../mcp_qwen.py  -  enabled
 ```
 
-**3. Add delegation rules to `~/.codex/AGENTS.md`:**
+**3. Keep delegation rules in `~/.codex/AGENTS.md`:**
 
-The `AGENTS.md` file is loaded by Codex at the start of each session. Add rules there to instruct
-Codex on when to delegate to Qwen (see the file for current rules).
+The `AGENTS.md` file is loaded by Codex at the start of each session. Keep the executable routing
+rules there; this README documents the setup and expected behavior.
 
 ### Routing modes
 
-| Active Codex model                 | Codex role                   | Qwen delegation scope                                                                                 |
-| ---------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `gpt-5.4-mini` / `gpt5.4-mini` | Routing and orchestration    | Delegate Q&A, summaries, translation, code generation, refactoring, tests, and file-context reasoning |
-| Stronger GPT-5.x models            | Primary reasoning/generation | Delegate only simple, self-contained subtasks                                                         |
+| Active Codex model                     | Codex role                   | Qwen delegation scope                                                                                 |
+| -------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `gpt-5.4-mini` / `gpt5.4-mini`     | Routing and orchestration    | Delegate Q&A, summaries, translation, code generation, refactoring, tests, and file-context reasoning |
+| Stronger GPT-5.x models                | Primary reasoning/generation | Delegate only simple, self-contained subtasks                                                         |
 
 For `gpt-5.4-mini`, Codex should read/search files locally, pass the relevant content to Qwen, apply the returned edits, and run verification commands. Qwen does not access files by path; it receives only text provided by Codex.
 
-For stronger GPT-5.x models, the key routing logic is:
+For stronger GPT-5.x models, the optional delegation logic is:
 
 | Task type                                                    | Tool to use                         |
 | ------------------------------------------------------------ | ----------------------------------- |
 | Boilerplate/stub generation, language translation            | `ask_qwen_code(language, prompt)` |
 | Comment/docstring translation, short explanations, summaries | `ask_qwen(prompt)`                |
-| Multi-step reasoning, architecture, cross-file analysis      | Codex handles directly              |
+| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly |
 
 ---
 
@@ -275,42 +275,22 @@ The cloud model handles orchestration: reading files, running searches, applying
 | Claude Code | Model ID contains `haiku`                           | `~/.claude/CLAUDE.md` |
 | Codex       | Model ID contains `gpt-5.4-mini` or `gpt5.4-mini` | `~/.codex/AGENTS.md`  |
 
-### Shared routing rules
+### Shared routing contract
 
-Add rules like the following to the appropriate configuration file.
+Keep executable rules in the client-specific configuration file. The common contract is:
 
-```markdown
-## Lightweight Delegation Mode
-
-When your model ID matches a lightweight routing model:
-
-**Goal:** Minimize cloud API token consumption by delegating core reasoning and generation to the local Qwen model via MCP.
-
-### Routing Rules
-
-1. **Q&A / explanation / summary / translation**
-   → `ask_qwen(prompt=<full user message>)` — return verbatim
-
-2. **Code generation / refactoring / unit tests**
-   → `ask_qwen_code(language=<lang>, prompt=<full user message and required context>)` — return verbatim
-
-3. **Tasks requiring file context (read-then-ask pattern)**
-   → The cloud model reads/searches files with local tools
-   → It passes the relevant content to `ask_qwen` / `ask_qwen_code`
-   → It applies Qwen's result and runs verification
-   → Qwen itself does **not** access the filesystem; it receives only the text provided in the prompt
-   → If total content exceeds ~8K tokens, process one file at a time
-
-> **Not supported by `ask_qwen` / `ask_qwen_code`:**
-> tasks that require tool use, filesystem access inside Qwen, or stateful multi-step reasoning across calls.
-> These are single-shot text-in / text-out calls.
-```
+- The cloud client handles file I/O, searches, edits, tool calls, and verification.
+- Qwen receives only prompt text supplied by the cloud client; it cannot access paths, tools, or prior calls.
+- `ask_qwen` is for prose tasks such as Q&A, explanations, summaries, and translation.
+- `ask_qwen_code` is for code generation, refactoring, test skeletons, and code translation.
+- For lightweight routing models, delegate each reasoning or generation step to Qwen.
+- For stronger models, delegate only simple self-contained subtasks and keep root-cause analysis, architecture, and broad cross-file reasoning in the cloud model.
 
 ### Token Limits
 
 | Limit                    | Value                     | Source                                                 |
 | ------------------------ | ------------------------- | ------------------------------------------------------ |
-| Output per call (client) | **2,048 tokens**    | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
+| Output per call (client) | **≤ 2,048 tokens**  | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
 | Output ceiling (server)  | 8,192 tokens              | `--override-generation-config max_new_tokens:8192`   |
 | Context window           | **128K tokens**     | `--max-model-len 131072`                             |
 | Effective input budget   | **≤ ~126K tokens** | 131072 − 2048                                         |
