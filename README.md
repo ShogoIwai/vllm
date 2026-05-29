@@ -311,33 +311,24 @@ Keep executable rules in the client-specific configuration file. The common cont
 
 ---
 
-## Tips: Review Gate Token Reduction Strategies
-
-When Codex Review Gate is enabled, tokens are consumed heavily during each adversarial review. Currently, the following two methods are applied.
-
-### Active Reduction Methods
-
-#### ① `--review-effort=minimal` (High token reduction)
-
-```bash
-/codex:setup --review-effort=minimal
-```
-
-Significantly reduces token consumption by minimizing review depth.
-
-#### ② `--runtime=shared` (Speed improvement)
-
-```bash
-/codex:setup --runtime=shared
-```
-
-Reduces sandbox startup overhead and enables resource reuse across multiple turns.
-
----
-
 ## Tips: Codex stop-review-gate rg Process Lingering Issue
 
 Codex's `stop-review-gate` hook spawns `codex-companion.mjs`, which scans the repository with `rg .`. After the task completes or times out, child `rg` processes can remain orphaned — keeping load average elevated.
+
+### Root Cause & Primary Mitigation: Operate at the Second Level or Deeper
+
+The harness launch root (the top-level workspace directory) is not a single git
+repository — it holds many independently-cloned repositories. When `git` is run
+from that root it fails, so the review gate falls back to extracting the diff with
+a repository-wide `rg .`, which is exactly what spawns the lingering `rg` processes.
+
+**The first-line fix is to always operate at the second level or deeper**, i.e.
+`cd` into the concrete target project (`<workspace-root>/<project>/<subdir>`, a
+real git working tree) before any `git` / diff operation, instead of the launch
+root. Inside a single repository `git` stays valid and the gate extracts a real
+diff rather than scanning the whole tree. This general rule is documented in both
+`~/.claude/CLAUDE.md` (Claude Code) and `~/.codex/AGENTS.md` (Codex). The `Stop`
+hook below remains as a belt-and-suspenders cleanup for any `rg` that still leaks.
 
 ### Fix: Claude Code `Stop` Hook
 
@@ -364,3 +355,27 @@ Add the following to `~/.claude/settings.json`. Claude Code runs it automaticall
 The hook matches `rg` processes by **session ID (SID)**. SID is inherited from the parent at fork and does not change when a process becomes orphaned — so even after `codex-companion.mjs` exits and `rg` is reparented to init, it retains the Claude Code session's SID.
 
 > **Best-effort:** this is not a perfect filter. `rg` processes started from the same terminal session that launched Claude Code share the same SID and would also be killed. In practice this trade-off is acceptable — intentional long-running `rg` searches in the same terminal as an active Claude Code session are rare.
+
+---
+
+## Tips: Review Gate Token Reduction Strategies
+
+When Codex Review Gate is enabled, tokens are consumed heavily during each adversarial review. Currently, the following two methods are applied.
+
+### Active Reduction Methods
+
+#### ① `--review-effort=minimal` (High token reduction)
+
+```bash
+/codex:setup --review-effort=minimal
+```
+
+Significantly reduces token consumption by minimizing review depth.
+
+#### ② `--runtime=shared` (Speed improvement)
+
+```bash
+/codex:setup --runtime=shared
+```
+
+Reduces sandbox startup overhead and enables resource reuse across multiple turns.
