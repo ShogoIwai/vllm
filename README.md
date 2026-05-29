@@ -99,7 +99,7 @@ Set in the startup scripts:
 `proxy.py` is a legacy FastAPI proxy that caps `max_tokens` to prevent context overflow in clients that send excessive token limits. It sits between the client and vLLM on port 8001:
 
 ```
-opencode → proxy :8001 → vLLM :8000
+harness → proxy :8001 → vLLM :8000
 ```
 
 Start it:
@@ -238,20 +238,20 @@ rules there; this README documents the setup and expected behavior.
 
 ### Routing modes
 
-| Active Codex model                     | Codex role                   | Qwen delegation scope                                                                                 |
-| -------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `gpt-5.4-mini` / `gpt5.4-mini`     | Routing and orchestration    | Delegate Q&A, summaries, translation, code generation, refactoring, tests, and file-context reasoning |
-| Stronger GPT-5.x models                | Primary reasoning/generation | Delegate only simple, self-contained subtasks                                                         |
+| Active Codex model                 | Codex role                   | Qwen delegation scope                                                                                 |
+| ---------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `gpt-5.4-mini` / `gpt5.4-mini` | Routing and orchestration    | Delegate Q&A, summaries, translation, code generation, refactoring, tests, and file-context reasoning |
+| Stronger GPT-5.x models            | Primary reasoning/generation | Delegate only simple, self-contained subtasks                                                         |
 
 For `gpt-5.4-mini`, Codex should read/search files locally, pass the relevant content to Qwen, apply the returned edits, and run verification commands. Qwen does not access files by path; it receives only text provided by Codex.
 
 For stronger GPT-5.x models, the optional delegation logic is:
 
-| Task type                                                    | Tool to use                         |
-| ------------------------------------------------------------ | ----------------------------------- |
-| Boilerplate/stub generation, language translation            | `ask_qwen_code(language, prompt)` |
-| Comment/docstring translation, short explanations, summaries | `ask_qwen(prompt)`                |
-| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly |
+| Task type                                                                    | Tool to use                         |
+| ---------------------------------------------------------------------------- | ----------------------------------- |
+| Boilerplate/stub generation, language translation                            | `ask_qwen_code(language, prompt)` |
+| Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
+| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
 
 ---
 
@@ -270,10 +270,10 @@ The cloud model handles orchestration: reading files, running searches, applying
 
 ### Configuration locations
 
-| Client      | Lightweight model trigger                             | Routing rules file      |
-| ----------- | ----------------------------------------------------- | ----------------------- |
-| Claude Code | Model ID contains `haiku`                           | `~/.claude/CLAUDE.md` |
-| Codex       | Model ID contains `gpt-5.4-mini` or `gpt5.4-mini` | `~/.codex/AGENTS.md`  |
+| Client      | Lightweight model trigger                             | Routing rules file  |
+| ----------- | ----------------------------------------------------- | ------------------- |
+| Claude Code | Model ID contains `haiku`                           | ~/.claude/CLAUDE.md |
+| Codex       | Model ID contains `gpt-5.4-mini` or `gpt5.4-mini` | ~/.codex/AGENTS.md  |
 
 ### Shared routing contract
 
@@ -288,14 +288,16 @@ Keep executable rules in the client-specific configuration file. The common cont
 
 ### Token Limits
 
-| Limit                    | Value                     | Source                                                 |
-| ------------------------ | ------------------------- | ------------------------------------------------------ |
-| Output per call (client) | **≤ 2,048 tokens**  | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
-| Output ceiling (server)  | 8,192 tokens              | `--override-generation-config max_new_tokens:8192`   |
-| Context window           | **128K tokens**     | `--max-model-len 131072`                             |
-| Effective input budget   | **≤ ~126K tokens** | 131072 − 2048                                         |
+| Limit                    | Value                                | Source                                                 |
+| ------------------------ | ------------------------------------ | ------------------------------------------------------ |
+| Output per call (client) | **≤ 2,048 tokens**            | `mcp_qwen.py` `max_tokens=2048` (takes precedence) |
+| Output ceiling (server)  | 8,192 tokens                         | `--override-generation-config max_new_tokens:8192`   |
+| Context window           | **128K tokens**                | `--max-model-len 131072`                             |
+| Effective input budget   | **≤ ~129,024 tokens (~126K)** | 131072 − 2048 (total context minus reserved output)   |
 
-**Practical guideline:** keep each `ask_qwen` prompt under ~8K tokens for fast responses. For large files, pass one file per call and combine results yourself.
+`131072` is the **combined** input+output budget, not input alone. The `2,048` / `8,192` figures are **output** limits, not input limits.
+
+**Policy:** there is no soft cap on prompt size for speed reasons — use the full input budget (up to ~129K tokens) when the task needs it. Split into multiple calls only when the input genuinely exceeds ~129K (pass one file per call and combine results yourself), or when the expected answer would exceed the 2,048-token output limit (split the *output* across calls).
 
 ### Benefits
 
