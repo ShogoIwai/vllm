@@ -270,10 +270,10 @@ The cloud model handles orchestration: reading files, running searches, applying
 
 ### Configuration locations
 
-| Client      | Lightweight model trigger                             | Routing rules file  |
-| ----------- | ----------------------------------------------------- | ------------------- |
-| Claude Code | Model ID contains `haiku`                           | ~/.claude/CLAUDE.md |
-| Codex       | Model ID contains `gpt-5.4-mini` or `gpt5.4-mini` | ~/.codex/AGENTS.md  |
+| Client      | Lightweight model trigger            | Routing rules file      |
+| ----------- | ------------------------------------ | ----------------------- |
+| Claude Code | Model ID contains `haiku`          | `~/.claude/CLAUDE.md` |
+| Codex       | Model ID contains `gpt-5.4-mini`  | `~/.codex/AGENTS.md`  |
 
 ### Shared routing contract
 
@@ -285,6 +285,39 @@ Keep executable rules in the client-specific configuration file. The common cont
 - `ask_qwen_code` is for code generation, refactoring, test skeletons, and code translation.
 - For lightweight routing models, delegate each reasoning or generation step to Qwen.
 - For stronger models, delegate only simple self-contained subtasks and keep root-cause analysis, architecture, and broad cross-file reasoning in the cloud model.
+
+### Codex stop-review-gate delegation
+
+The Codex stop-time review gate is launched by the Claude Code plugin hook:
+
+| Plugin file                                                                               | Purpose                                                                         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `~/.claude/plugins/cache/openai-codex/codex/1.0.3/scripts/stop-review-gate-hook.mjs`    | Runtime hook that calls `codex-companion.mjs task --json`                     |
+| `~/.claude/plugins/cache/openai-codex/codex/1.0.3/prompts/stop-review-gate.md`          | Runtime prompt used for the stop-gate Codex task                                |
+| `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md` | Source prompt to keep in sync so reinstall/cache refresh does not lose the rule |
+
+The hook itself does not choose Qwen. It only builds the stop-gate prompt and starts
+a Codex task. To make lightweight delegation reliable, add the Qwen rule to
+`stop-review-gate.md` in both the cache and source plugin copies:
+
+```text
+When reviewing actual code changes and local Qwen MCP tools are available, delegate
+the review reasoning to Qwen after gathering the relevant repository context locally.
+Pass Qwen the concrete diff and relevant file snippets; do not ask Qwen to read paths
+or use tools. Keep all file I/O, command execution, and final ALLOW/BLOCK decision in
+Codex. If the previous turn did not make direct edits, return ALLOW immediately without
+calling Qwen.
+```
+
+This preserves the fast path: if the previous Claude turn was only a status update,
+summary, setup/login check, command output, or review result, Codex should return
+`ALLOW` immediately and not call Qwen. If the previous turn did make direct edits,
+Codex should gather the concrete diff and relevant snippets locally, ask Qwen for
+the review reasoning, then make the final `ALLOW` / `BLOCK` decision itself.
+
+This prompt-level rule still requires the Codex session to have `qwen-local` MCP
+available via `~/.codex/config.toml`. If the MCP server is not exposed to the
+stop-gate Codex session, the prompt cannot make Codex call Qwen.
 
 ### Token Limits
 
