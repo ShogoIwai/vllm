@@ -79,7 +79,8 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 | -------------------------------- | --------------------------------------- | -------------------------------------------------------- |
 | `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                               |
 | `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                             |
-| `--tool-call-parser`           | `qwen3_coder`                         | Qwen3 tool format parser                                 |
+| `--tool-call-parser`           | `qwen3_xml`                           | Qwen3 XML tool parser; avoids long-context `qwen3_coder` infinite `!` loop and `hermes` raw `<tool_call>` leakage |
+| `--reasoning-parser`           | `qwen3`                               | Separates `<think>` reasoning blocks from normal output and tool arguments |
 | `--trust-remote-code`          | —                                      | Allow custom model code from HuggingFace                 |
 | `--language-model-only`        | —                                      | Skip multimodal pipeline overhead                        |
 | `--override-generation-config` | `{"max_new_tokens":8192}`             | Server-side generation token limit                       |
@@ -91,8 +92,6 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 | `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)      |
 | `--enable-chunked-prefill`     | —                                      | Split long prefills into chunks for stable batching      |
 | `--max-num-batched-tokens`     | `4096`                                | Fixed at 4096 to avoid Mamba alignment error with chunked-prefill |
-
-> Note: MTP / speculative decoding は意図的に無効。16GB 単一 GPU ではフルコンテキスト（128K）維持を優先する。
 
 ## Environment Variables
 
