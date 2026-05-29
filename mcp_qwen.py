@@ -50,7 +50,20 @@ def _chat(system: str, user: str, max_tokens: int = 2048, tool: str = "_chat") -
         temperature=0.2,
     )
     _log_usage(tool, system, user, resp, time.monotonic() - t0)
-    return resp.choices[0].message.content or ""
+    msg = resp.choices[0].message
+    # Some vLLM setups (e.g. a reasoning parser enabled for Qwen3) place the
+    # model's answer in `reasoning`/`reasoning_content` and leave `content`
+    # null. Fall back to those fields so the tool still returns the output.
+    content = msg.content
+    if not content:
+        for attr in ("reasoning", "reasoning_content"):
+            alt = getattr(msg, attr, None)
+            if alt is None and getattr(msg, "model_extra", None):
+                alt = msg.model_extra.get(attr)
+            if alt:
+                content = alt
+                break
+    return content or ""
 
 
 @mcp.tool()

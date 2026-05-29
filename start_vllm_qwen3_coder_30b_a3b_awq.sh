@@ -9,10 +9,16 @@ export OMP_NUM_THREADS=4
 
 # MTP/speculative decoding は無効のまま維持: 16GB GPU ではフルコンテキスト維持を優先。
 # chunked-prefill 有効時の Mamba アライメントエラー回避のため max-num-batched-tokens=4096 固定。
+# tool-call-parser=qwen3_xml: qwen3_coder は長文 ctx でツール呼び出し時に無限「!」ループ
+#   (next_token_id=0) に陥り、hermes はストリーミング時に生 <tool_call> XML を漏らす。
+#   qwen3_xml が長文・高速ストリーミングを両立 (vLLM 0.21.0 で実装確認済み)。
+# reasoning-parser=qwen3: <think> 思考ブロックを隔離し、編集系ツールの引数に思考ログが
+#   混入するのを防ぐ。
 vllm serve QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ \
   --served-model-name local-model-qwen3-coder-30b-a3b-awq \
   --enable-auto-tool-choice \
-  --tool-call-parser qwen3_coder \
+  --tool-call-parser qwen3_xml \
+  --reasoning-parser qwen3 \
   --trust-remote-code \
   --language-model-only \
   --override-generation-config '{"max_new_tokens":8192}' \
