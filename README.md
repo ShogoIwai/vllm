@@ -360,24 +360,20 @@ The hook matches `rg` processes by **session ID (SID)**. SID is inherited from t
 
 ---
 
-## Tips: Review Gate Token Reduction Strategies
+## Tips: Review Gate Token Reduction
 
-When Codex Review Gate is enabled, tokens are consumed heavily during each adversarial review. Currently, the following two methods are applied.
-
-### Active Reduction Methods
-
-#### ① `--review-effort=minimal` (High token reduction)
+When Codex Review Gate is enabled, each stop-time review can consume a noticeable
+amount of Codex usage. In the current `openai-codex` plugin (`1.0.3`),
+`/codex:setup` only supports enabling or disabling the review gate:
 
 ```bash
-/codex:setup --review-effort=minimal
+/codex:setup --enable-review-gate
+/codex:setup --disable-review-gate
 ```
 
-Significantly reduces token consumption by minimizing review depth.
+To reduce review depth, set the Codex reasoning effort in `~/.codex/config.toml`
+or a trusted project `.codex/config.toml`:
 
-#### ② `--runtime=shared` (Speed improvement)
-
-```bash
-/codex:setup --runtime=shared
+```toml
+model_reasoning_effort = "minimal"
 ```
-
-Reduces sandbox startup overhead and enables resource reuse across multiple turns.
