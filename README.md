@@ -12,13 +12,20 @@ The goal of this repository is to build a workflow that connects the following t
 ## Workflow Overview
 
 ```
+Cloud path (quota monitoring):
+Claude Code ─ ANTHROPIC_BASE_URL=:8000 ─→ proxy.py (:8000) ─→ api.anthropic.com
+                                              │
+                                              └─ writes 5h-quota → ~/.claude/usage-status.json
+                                                 → UserPromptSubmit hook (usage_route_hook.py)
+                                                   forces Qwen delegation above threshold
+
 Claude Code ──── review-gate integration ──── Codex
      │                                           │
      │                                        MCP (stdio)
      │                                           │
      │                                        mcp_qwen.py (same script used by Claude Code)
      │                                           │
-     └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8000) ──── Qwen model
+     └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8001) ──── Qwen model
                                ↑
 sgpt (CLI)      → OpenAI API ──┤
 Cline (VS Code) → OpenAI API ──┘
@@ -35,6 +42,11 @@ reasoning the cloud model has to perform, which is what actually lowers API toke
 consumption. Model choice (and its effort level) is a separate axis: it controls how
 deeply the cloud model reasons about the work it does keep, not whether offload happens.
 
+A second, complementary axis is **quota-remaining based** routing: a monitoring proxy
+captures the Anthropic 5-hour usage quota and a `UserPromptSubmit` hook biases routing
+toward Qwen once the quota crosses a threshold — see
+[Quota-based delegation](#quota-based-delegation-5h-quota-monitoring).
+
 **Standalone local LLM verification:**
 sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server and Qwen model independently of Claude Code.
 
@@ -42,18 +54,96 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 
 ## Directory Contents
 
-| File                                      | Description                                                          |
-| ----------------------------------------- | -------------------------------------------------------------------- |
-| `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)     |
-| `start_vllm_qwen3_6_27b_awq.sh`         | vLLM startup — Qwen3.6-27B (128K ctx, cpu-offload 8 GB)             |
-| `start_vllm_qwen2_5_coder_14b_awq.sh`   | vLLM startup — Qwen2.5-Coder-14B (32K ctx, fast)                    |
-| `proxy.py`                              | Legacy max_tokens-capping proxy for Claude Code (port 8001)          |
-| `sourceme`                              | bash/sh env vars (`export`)                                        |
-| `sourceme.csh`                          | tcsh env vars (`setenv`)                                           |
-| `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
-| `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)     |
-| `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)  |
-| `README.md`                             | This file                                                            |
+| File                                      | Description                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `proxy.py`                              | Transparent monitoring proxy (port 8000): captures Anthropic 5h-quota headers →`usage-status.json` |
+| `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                         |
+| `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                          |
+| `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                      |
+| `start_vllm_qwen3_6_27b_awq.sh`         | vLLM startup — Qwen3.6-27B (128K ctx, cpu-offload 8 GB)                                              |
+| `start_vllm_qwen2_5_coder_14b_awq.sh`   | vLLM startup — Qwen2.5-Coder-14B (32K ctx, fast)                                                     |
+| `sourceme`                              | bash/sh env vars (`export`)                                                                         |
+| `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                            |
+| `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                  |
+| `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                  |
+| `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)                                     |
+| `README.md`                             | This file                                                                                             |
+
+---
+
+## Quota-based delegation (5h-quota monitoring)
+
+Delegation has **two axes**:
+
+1. **Task-shape based** (always on): offload a subtask to Qwen when it is formulaic,
+   localized, and easy to verify — see [Delegation Principle](#delegation-principle).
+2. **Quota-remaining based** (new): when the Anthropic 5-hour usage quota is running low,
+   *bias the routing aggressively toward Qwen* even for subtasks that would normally stay
+   in the cloud. This is what `proxy.py` + `usage_route_hook.py` implement.
+
+```
+Claude Code ─ ANTHROPIC_BASE_URL=:8000 ─→ proxy.py (:8000) ─→ api.anthropic.com
+                                              │ reads anthropic-ratelimit-unified-5h-* headers
+                                              ▼
+                                    ~/.claude/usage-status.json
+                                              ▲ read on every prompt
+                  usage_route_hook.py (UserPromptSubmit hook) ── inject "prefer Qwen" when 5h ≥ θ
+```
+
+### proxy.py — transparent monitoring proxy (port 8000)
+
+`proxy.py` is a FastAPI proxy that forwards requests/responses to Anthropic **verbatim**
+(no body modification). Its only job is to passively read the unified rate-limit headers
+from each upstream response and write the latest snapshot to `~/.claude/usage-status.json`:
+
+| Header                                         | Stored key                             |
+| ---------------------------------------------- | -------------------------------------- |
+| `anthropic-ratelimit-unified-5h-utilization` | `utilization_5h` (0.0–1.0)          |
+| `anthropic-ratelimit-unified-5h-remaining`   | `remaining_5h`                       |
+| `anthropic-ratelimit-unified-5h-reset`       | `reset_5h` (Unix epoch)              |
+| `anthropic-ratelimit-unified-7d-utilization` | `utilization_7d` (weekly, reference) |
+
+Start it and route Claude Code through it:
+
+```bash
+python3 vllm/proxy.py
+# Listening on http://0.0.0.0:8000  (forwards to https://api.anthropic.com by default)
+
+export ANTHROPIC_BASE_URL=http://localhost:8000   # done automatically by sourceme
+```
+
+The status write is atomic and best-effort; it never alters or breaks the proxied
+request. Override the backend with `PROXY_BACKEND` and the status path with
+`USAGE_STATUS_PATH`.
+
+Registered in `~/.claude/settings.json` under `UserPromptSubmit`. On every prompt it reads
+`usage-status.json`; if `utilization_5h ≥ threshold` it injects an `additionalContext`
+instruction telling Claude to prefer the local Qwen model (`ask_qwen` / `ask_qwen_code`)
+as the first choice for code generation, debugging, refactoring, and self-contained
+prose subtasks. Below the threshold it injects nothing (normal operation). It is
+read-only and fails closed to a clean no-op (missing / stale / corrupt status → no
+injection), so it can never block prompt submission.
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [
+        { "type": "command", "command": "python3 $REP/vllm/usage_route_hook.py" }
+      ] }
+    ]
+  }
+}
+```
+
+| Env var                  | Default                         | Purpose                                                  |
+| ------------------------ | ------------------------------- | -------------------------------------------------------- |
+| `QWEN_ROUTE_THRESHOLD` | `0.85`                        | 5h utilization (0.0–1.0) at/above which to force Qwen   |
+| `QWEN_ROUTE_TOOLS`     | `ask_qwen, ask_qwen_code`     | MCP tool names recommended in the injected text          |
+| `QWEN_ROUTE_MAX_AGE`   | `21600` (6h; `0` disables)  | Ignore the status file when older than this many seconds |
+| `USAGE_STATUS_PATH`    | `~/.claude/usage-status.json` | Status file path (shared with `proxy.py`)              |
+
+---
 
 ## Available Models
 
@@ -62,8 +152,6 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | `QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ` | 128K    | 16 GB | **Default.** MoE 30B/3B-active, multi-file coding |
 | `start_vllm_qwen3_6_27b_awq.sh`         | `QuantTrio/Qwen3.6-27B-AWQ`                  | 128K    | 16 GB | General purpose, reasoning                              |
 | `start_vllm_qwen2_5_coder_14b_awq.sh`   | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ`        | 32K     | 16 GB | Lightweight, fast startup                               |
-
----
 
 ## Requirements
 
@@ -75,23 +163,23 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 
 Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 
-| Flag                             | Value                                   | Purpose                                                  |
-| -------------------------------- | --------------------------------------- | -------------------------------------------------------- |
-| `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                               |
-| `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                             |
+| Flag                             | Value                                   | Purpose                                                                                                                   |
+| -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                                                                                                |
+| `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                                                                                              |
 | `--tool-call-parser`           | `qwen3_xml`                           | Qwen3 XML tool parser; avoids long-context `qwen3_coder` infinite `!` loop and `hermes` raw `<tool_call>` leakage |
-| `--reasoning-parser`           | `qwen3`                               | Separates `<think>` reasoning blocks from normal output and tool arguments |
-| `--trust-remote-code`          | —                                      | Allow custom model code from HuggingFace                 |
-| `--language-model-only`        | —                                      | Skip multimodal pipeline overhead                        |
-| `--override-generation-config` | `{"max_new_tokens":8192}`             | Server-side generation token limit                       |
-| `--max-model-len`              | `131072`                              | Context window (128K)                                    |
-| `--cpu-offload-gb`             | `2`                                   | Offload 2 GB of weights to CPU RAM for KV cache headroom |
-| `--max-num-seqs`               | `2`                                   | Max concurrent sequences                                 |
-| `--kv-cache-dtype`             | `fp8`                                 | FP8 KV cache to reduce VRAM usage                        |
-| `--gpu-memory-utilization`     | `0.95`                                | VRAM usage target                                        |
-| `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)      |
-| `--enable-chunked-prefill`     | —                                      | Split long prefills into chunks for stable batching      |
-| `--max-num-batched-tokens`     | `4096`                                | Fixed at 4096 to avoid Mamba alignment error with chunked-prefill |
+| `--reasoning-parser`           | `qwen3`                               | Separates `<think>` reasoning blocks from normal output and tool arguments                                              |
+| `--trust-remote-code`          | —                                      | Allow custom model code from HuggingFace                                                                                  |
+| `--language-model-only`        | —                                      | Skip multimodal pipeline overhead                                                                                         |
+| `--override-generation-config` | `{"max_new_tokens":8192}`             | Server-side generation token limit                                                                                        |
+| `--max-model-len`              | `131072`                              | Context window (128K)                                                                                                     |
+| `--cpu-offload-gb`             | `2`                                   | Offload 2 GB of weights to CPU RAM for KV cache headroom                                                                  |
+| `--max-num-seqs`               | `2`                                   | Max concurrent sequences                                                                                                  |
+| `--kv-cache-dtype`             | `fp8`                                 | FP8 KV cache to reduce VRAM usage                                                                                         |
+| `--gpu-memory-utilization`     | `0.95`                                | VRAM usage target                                                                                                         |
+| `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)                                                                       |
+| `--enable-chunked-prefill`     | —                                      | Split long prefills into chunks for stable batching                                                                       |
+| `--max-num-batched-tokens`     | `4096`                                | Fixed at 4096 to avoid Mamba alignment error with chunked-prefill                                                         |
 
 ## Environment Variables
 
@@ -102,25 +190,6 @@ Set in the startup scripts:
 - `VLLM_USE_FLASHINFER_MOE_FP16=0`
 - `VLLM_USE_FLASHINFER_SAMPLER=0`
 - `OMP_NUM_THREADS=4`
-
----
-
-## proxy.py Usage
-
-`proxy.py` is a legacy FastAPI proxy that caps `max_tokens` to prevent context overflow in clients that send excessive token limits. It sits between the client and vLLM on port 8001:
-
-```
-harness → proxy :8001 → vLLM :8000
-```
-
-Start it:
-
-```bash
-python vllm/proxy.py
-# Listening on http://0.0.0.0:8001
-```
-
-If a client sends `max_tokens > 129,024`, the proxy silently caps it to 129,024. The proxy is **optional** — the vLLM startup scripts already set `max_new_tokens=129024` via `override-generation-config`.
 
 ---
 
@@ -148,11 +217,21 @@ Get a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/
 vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh   # default (30B, 128K ctx)
 ```
 
-The server listens on `http://0.0.0.0:8000`.
+The server listens on `http://0.0.0.0:8001`.
+
+### 3b. Start the monitoring proxy (optional, for quota-based delegation)
+
+```bash
+python3 vllm/proxy.py   # listens on :8000, forwards to api.anthropic.com
+```
+
+Then `source vllm/sourceme` (sets `ANTHROPIC_BASE_URL=http://localhost:8000`) and start
+Claude Code so its API traffic flows through the proxy. See
+[Quota-based delegation](#quota-based-delegation-5h-quota-monitoring).
 
 ### 4. Configure sgpt (CLI option)
 
-sgpt reads `API_BASE_URL` from `~/.config/shell_gpt/.sgptrc` — make sure it is set to `http://localhost:8000/v1` (not `default`). `DEFAULT_MODEL` should also be set to the local model name.
+sgpt reads `API_BASE_URL` from `~/.config/shell_gpt/.sgptrc` — make sure it is set to `http://localhost:8001/v1` (not `default`). `DEFAULT_MODEL` should also be set to the local model name.
 
 ```bash
 # bash / sh
@@ -171,7 +250,7 @@ sgpt "hello"
 | Field        | Value                                   |
 | ------------ | --------------------------------------- |
 | API Provider | `OpenAI Compatible`                   |
-| Base URL     | `http://localhost:8000/v1`            |
+| Base URL     | `http://localhost:8001/v1`            |
 | API Key      | `dummy`                               |
 | Model ID     | `local-model-qwen3-coder-30b-a3b-awq` |
 
@@ -180,7 +259,7 @@ sgpt "hello"
 `mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. Routing rules delegate subtasks that are good offload candidates (formulaic, localized, easy to verify) to Qwen, while Claude Code keeps file I/O, tool calls, orchestration, and verification. The offload decision is based on task shape, not on which model is active (see [Delegation Principle](#delegation-principle)).
 
 ```
-Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B-A3B
+Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B-A3B
 ```
 
 ### Setup (one-time)
@@ -235,6 +314,12 @@ python3 vllm/usage_report.py path/to/usage.log
 This is the measurement baseline for evaluating delegation/compression changes
 (before vs. after token comparison).
 
+`usage_report.py` measures the **local Qwen** side (how much work was offloaded). For
+the **cloud** side, `~/.claude/usage-status.json` (written by `proxy.py`) gives the live
+Anthropic 5h-quota utilization — the trigger that drives quota-based delegation. Together
+they show both halves of the picture: how much cloud quota remains, and how much work was
+pushed to the local GPU in response.
+
 ## 7. Codex MCP Integration (Recommended)
 
 The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can then call
@@ -242,7 +327,7 @@ The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can th
 reducing OpenAI API token consumption.
 
 ```
-Codex CLI → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B-A3B
+Codex CLI → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B-A3B
 ```
 
 ### Setup (one-time)
@@ -337,8 +422,8 @@ decision is expressed in terms of work shape rather than in terms of a specific 
 ### Architecture
 
 ```
-User → Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
-User → Codex       → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
+User → Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B
+User → Codex       → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B
 ```
 
 The cloud model handles orchestration: reading files, running searches, applying edits, and verifying results. Qwen handles the text-in/text-out reasoning or generation step.

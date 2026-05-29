@@ -30,4 +30,4 @@ vllm serve QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ \
   --kv-cache-dtype fp8 \
   --gpu-memory-utilization 0.95 \
   --host 0.0.0.0 \
-  --port 8000
+  --port 8001

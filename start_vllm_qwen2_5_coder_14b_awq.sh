@@ -19,4 +19,4 @@ vllm serve Qwen/Qwen2.5-Coder-14B-Instruct-AWQ \
   --max-num-seqs 4 \
   --gpu-memory-utilization 0.94 \
   --host 0.0.0.0 \
-  --port 8000
+  --port 8001

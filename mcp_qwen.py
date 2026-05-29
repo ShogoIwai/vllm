@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server: exposes local Qwen (vLLM :8000) as Claude Code tools."""
+"""MCP server: exposes local Qwen (vLLM :8001) as Claude Code tools."""
 
 import json
 import os
@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
 from openai import OpenAI
 
-VLLM_BASE_URL = "http://localhost:8000/v1"
+VLLM_BASE_URL = "http://localhost:8001/v1"
 MODEL_ID = "local-model-qwen3-coder-30b-a3b-awq"
 
 # T6: lightweight token-usage instrumentation. Append one JSON object per call.

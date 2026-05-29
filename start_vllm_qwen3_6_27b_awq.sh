@@ -22,4 +22,4 @@ vllm serve QuantTrio/Qwen3.6-27B-AWQ \
   --max-num-seqs 2 \
   --gpu-memory-utilization 0.94 \
   --host 0.0.0.0 \
-  --port 8000
+  --port 8001
