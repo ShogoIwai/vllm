@@ -87,6 +87,10 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 | `--kv-cache-dtype`             | `fp8`                                 | FP8 KV cache to reduce VRAM usage                        |
 | `--gpu-memory-utilization`     | `0.95`                                | VRAM usage target                                        |
 | `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)      |
+| `--enable-chunked-prefill`     | —                                      | Split long prefills into chunks for stable batching      |
+| `--max-num-batched-tokens`     | `4096`                                | Fixed at 4096 to avoid Mamba alignment error with chunked-prefill |
+
+> Note: MTP / speculative decoding は意図的に無効。16GB 単一 GPU ではフルコンテキスト（128K）維持を優先する。
 
 ## Environment Variables
 

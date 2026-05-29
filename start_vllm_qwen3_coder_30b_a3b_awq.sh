@@ -7,6 +7,8 @@ export VLLM_USE_FLASHINFER_MOE_FP16=0
 export VLLM_USE_FLASHINFER_SAMPLER=0
 export OMP_NUM_THREADS=4
 
+# MTP/speculative decoding は無効のまま維持: 16GB GPU ではフルコンテキスト維持を優先。
+# chunked-prefill 有効時の Mamba アライメントエラー回避のため max-num-batched-tokens=4096 固定。
 vllm serve QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ \
   --served-model-name local-model-qwen3-coder-30b-a3b-awq \
   --enable-auto-tool-choice \
@@ -15,6 +17,8 @@ vllm serve QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ \
   --language-model-only \
   --override-generation-config '{"max_new_tokens":8192}' \
   --enable-prefix-caching \
+  --enable-chunked-prefill \
+  --max-num-batched-tokens 4096 \
   --max-model-len 131072 \
   --cpu-offload-gb 2 \
   --max-num-seqs 2 \
