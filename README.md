@@ -51,6 +51,8 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 | `sourceme`                              | bash/sh env vars (`export`)                                        |
 | `sourceme.csh`                          | tcsh env vars (`setenv`)                                           |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
+| `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)     |
+| `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)  |
 | `README.md`                             | This file                                                            |
 
 ## Available Models
@@ -213,6 +215,26 @@ Just ask Claude Code normally — it will call Qwen automatically when the confi
 > **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
 
 To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
+
+### Token usage logging
+
+Every Qwen call made through `mcp_qwen.py` appends one JSON line to `vllm/usage.log`
+(override the path with the `QWEN_USAGE_LOG` env var). Each record holds the timestamp,
+tool name, input character count, and `prompt` / `completion` / `total` token counts from
+the vLLM response, plus call latency. Logging is best-effort and never fails the call.
+
+Summarize consumption with the aggregation script:
+
+```bash
+python3 vllm/usage_report.py                 # daily × tool table (default ./usage.log)
+python3 vllm/usage_report.py --by day        # group by day only
+python3 vllm/usage_report.py --by tool       # group by tool only
+python3 vllm/usage_report.py --json          # machine-readable
+python3 vllm/usage_report.py path/to/usage.log
+```
+
+This is the measurement baseline for evaluating delegation/compression changes
+(before vs. after token comparison).
 
 ## 7. Codex MCP Integration (Recommended)
 
