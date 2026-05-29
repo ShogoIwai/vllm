@@ -40,14 +40,6 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 
 ---
 
-## Available Models
-
-| Script                                    | Model                                          | Context | VRAM  | Notes                                                   |
-| ----------------------------------------- | ---------------------------------------------- | ------- | ----- | ------------------------------------------------------- |
-| `start_vllm_qwen3_coder_30b_a3b_awq.sh` | `QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ` | 128K    | 16 GB | **Default.** MoE 30B/3B-active, multi-file coding |
-| `start_vllm_qwen3_6_27b_awq.sh`         | `QuantTrio/Qwen3.6-27B-AWQ`                  | 128K    | 16 GB | General purpose, reasoning                              |
-| `start_vllm_qwen2_5_coder_14b_awq.sh`   | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ`        | 32K     | 16 GB | Lightweight, fast startup                               |
-
 ## Directory Contents
 
 | File                                      | Description                                                          |
@@ -60,6 +52,14 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 | `sourceme.csh`                          | tcsh env vars (`setenv`)                                           |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools |
 | `README.md`                             | This file                                                            |
+
+## Available Models
+
+| Script                                    | Model                                          | Context | VRAM  | Notes                                                   |
+| ----------------------------------------- | ---------------------------------------------- | ------- | ----- | ------------------------------------------------------- |
+| `start_vllm_qwen3_coder_30b_a3b_awq.sh` | `QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ` | 128K    | 16 GB | **Default.** MoE 30B/3B-active, multi-file coding |
+| `start_vllm_qwen3_6_27b_awq.sh`         | `QuantTrio/Qwen3.6-27B-AWQ`                  | 128K    | 16 GB | General purpose, reasoning                              |
+| `start_vllm_qwen2_5_coder_14b_awq.sh`   | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ`        | 32K     | 16 GB | Lightweight, fast startup                               |
 
 ---
 
@@ -115,7 +115,7 @@ python vllm/proxy.py
 # Listening on http://0.0.0.0:8001
 ```
 
-If a client sends `max_tokens > 8192`, the proxy silently caps it to `8192`. The proxy is **optional** — the vLLM startup scripts already set `max_new_tokens=8192` via `override-generation-config`.
+If a client sends `max_tokens > 129,024`, the proxy silently caps it to 129,024. The proxy is **optional** — the vLLM startup scripts already set `max_new_tokens=129024` via `override-generation-config`.
 
 ---
 

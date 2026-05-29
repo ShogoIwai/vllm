@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
 BACKEND = "http://localhost:8000"
-MAX_TOKENS_CAP = 8192  # adjust as needed
+MAX_TOKENS_CAP = 129024  # adjust as needed
 
 
 @asynccontextmanager
