@@ -26,8 +26,14 @@ Cline (VS Code) → OpenAI API ──┘
 
 **Reducing token / message consumption:**
 
-- **Claude Code**: When switched to a lightweight model (e.g. Haiku), core inference can be delegated to the local Qwen via MCP. This minimizes Claude API token consumption while maintaining output quality.
-- **Codex**: Delegation depends on the active cloud model. With `gpt-5.4-mini`, Codex acts as a routing/orchestration layer and delegates core reasoning and generation to local Qwen. With stronger GPT-5.x models, Codex normally delegates only simple subtasks such as boilerplate generation, comment translation, and short summaries.
+Both Claude Code and Codex can offload work to the local Qwen via MCP. The offload
+decision is **not** tied to which cloud model is active — it is based on the **shape of
+the subtask** (see [Delegation Principle](#delegation-principle)). When a subtask is
+formulaic, localized, and easy to verify, the cloud client passes it to Qwen and keeps
+file I/O, orchestration, and verification for itself. This reduces the expensive
+reasoning the cloud model has to perform, which is what actually lowers API token
+consumption. Model choice (and its effort level) is a separate axis: it controls how
+deeply the cloud model reasons about the work it does keep, not whether offload happens.
 
 **Standalone local LLM verification:**
 sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server and Qwen model independently of Claude Code.
@@ -166,7 +172,7 @@ sgpt "hello"
 
 ## 6. Claude Code MCP Integration (Recommended)
 
-`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. When Claude Code runs on a lightweight model such as Haiku, routing rules can delegate core reasoning and generation to Qwen while Claude Code handles file I/O, tool calls, and orchestration.
+`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. Routing rules delegate subtasks that are good offload candidates (formulaic, localized, easy to verify) to Qwen, while Claude Code keeps file I/O, tool calls, orchestration, and verification. The offload decision is based on task shape, not on which model is active (see [Delegation Principle](#delegation-principle)).
 
 ```
 Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B-A3B
@@ -236,16 +242,13 @@ codex mcp list
 The `AGENTS.md` file is loaded by Codex at the start of each session. Keep the executable routing
 rules there; this README documents the setup and expected behavior.
 
-### Routing modes
+### Routing rules
 
-| Active Codex model                 | Codex role                   | Qwen delegation scope                                                                                 |
-| ---------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `gpt-5.4-mini` / `gpt5.4-mini` | Routing and orchestration    | Delegate Q&A, summaries, translation, code generation, refactoring, tests, and file-context reasoning |
-| Stronger GPT-5.x models            | Primary reasoning/generation | Delegate only simple, self-contained subtasks                                                         |
-
-For `gpt-5.4-mini`, Codex should read/search files locally, pass the relevant content to Qwen, apply the returned edits, and run verification commands. Qwen does not access files by path; it receives only text provided by Codex.
-
-For stronger GPT-5.x models, the optional delegation logic is:
+The offload decision is model-agnostic: it depends on the shape of the subtask, not on
+which GPT model is active (see [Delegation Principle](#delegation-principle)). Regardless
+of model, Codex reads/searches files locally, passes the relevant text to Qwen, applies
+the returned edits, and runs verification. Qwen does not access files by path; it receives
+only text provided by Codex.
 
 | Task type                                                                    | Tool to use                         |
 | ---------------------------------------------------------------------------- | ----------------------------------- |
@@ -253,27 +256,74 @@ For stronger GPT-5.x models, the optional delegation logic is:
 | Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
 | Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
 
+Model choice (and effort level) is a separate axis: a stronger model with higher effort
+reasons more deeply about the work Codex keeps, but the boundary of what is worth
+offloading stays the same.
+
 ---
 
-## Case Study: Lightweight Delegation Mode
+## Delegation Mode
 
-Lightweight cloud models can be used as orchestration layers while local Qwen performs the core reasoning and generation. This pattern applies to both **Claude Code with Haiku** and **Codex with `gpt-5.4-mini`**.
+Both Claude Code and Codex act as orchestration layers that can route individual
+subtasks to the local Qwen for the core reasoning or generation step. This applies
+across all cloud models — the same policy governs Claude Code and Codex regardless of
+which model or effort level is active.
+
+### Delegation Principle
+
+The key design point is that delegation should **not** be handled as a static model-switch policy.
+Instead, the decision should be based on the **task characteristics** and on whether moving work to
+Qwen actually reduces the expensive reasoning burden on the primary agent.
+
+In other words, the question is not "which model is active?" but "is this subtask a good candidate
+for offload?".
+
+Model choice and effort level are an **orthogonal** axis. They control how deeply the
+cloud model reasons about the work it keeps — not whether a subtask is offloaded. A
+weaker/cheaper model does not mean "offload everything," and a stronger model does not
+mean "offload nothing"; the offload boundary is the same in both cases and is determined
+only by task shape.
+
+**Good offload candidates**
+
+- Highly repetitive or formulaic work
+- Localized inputs with limited context
+- Outputs that are easy to verify quickly
+- Tasks where small formatting or wording differences are acceptable
+- Boilerplate generation, stubs, short summaries, translation, and simple transformations
+
+**Poor offload candidates**
+
+- Cross-file reasoning or system-wide consistency checks
+- Root-cause analysis and architecture decisions
+- Tasks where mistakes can silently introduce bugs
+- Cases where preparing the handoff context is almost as expensive as doing the work directly
+- Anything requiring the delegate model to read files by path, call tools, or maintain state across calls
+
+This means the implementation should expose a clear, model-agnostic policy:
+
+- classify the task first
+- decide whether delegation reduces the primary agent's reasoning load
+- then choose whether to route the subtask to local Qwen
+
+That keeps the system portable across Claude Code, Codex, and future clients, because the offload
+decision is expressed in terms of work shape rather than in terms of a specific model family.
 
 ### Architecture
 
 ```
-User → Claude Code (Haiku)     → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
-User → Codex (gpt-5.4-mini)   → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
+User → Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
+User → Codex       → MCP (stdio) → mcp_qwen.py → vLLM :8000 → Qwen3-Coder-30B
 ```
 
 The cloud model handles orchestration: reading files, running searches, applying edits, and verifying results. Qwen handles the text-in/text-out reasoning or generation step.
 
 ### Configuration locations
 
-| Client      | Lightweight model trigger            | Routing rules file      |
-| ----------- | ------------------------------------ | ----------------------- |
-| Claude Code | Model ID contains `haiku`          | `~/.claude/CLAUDE.md` |
-| Codex       | Model ID contains `gpt-5.4-mini`  | `~/.codex/AGENTS.md`  |
+| Client      | Routing rules file      |
+| ----------- | ----------------------- |
+| Claude Code | `~/.claude/CLAUDE.md` |
+| Codex       | `~/.codex/AGENTS.md`  |
 
 ### Shared routing contract
 
@@ -283,8 +333,11 @@ Keep executable rules in the client-specific configuration file. The common cont
 - Qwen receives only prompt text supplied by the cloud client; it cannot access paths, tools, or prior calls.
 - `ask_qwen` is for prose tasks such as Q&A, explanations, summaries, and translation.
 - `ask_qwen_code` is for code generation, refactoring, test skeletons, and code translation.
-- For lightweight routing models, delegate each reasoning or generation step to Qwen.
-- For stronger models, delegate only simple self-contained subtasks and keep root-cause analysis, architecture, and broad cross-file reasoning in the cloud model.
+- Classify each subtask by shape first, then offload it to Qwen only when it is a good
+  candidate (formulaic, localized, easy to verify). Keep root-cause analysis,
+  architecture decisions, and broad cross-file reasoning in the cloud model.
+- This contract is identical across all models and effort levels; the active model never
+  changes whether a given subtask is offloaded.
 
 ### Codex stop-review-gate delegation
 
@@ -297,7 +350,7 @@ The Codex stop-time review gate is launched by the Claude Code plugin hook:
 | `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/prompts/stop-review-gate.md` | Source prompt to keep in sync so reinstall/cache refresh does not lose the rule |
 
 The hook itself does not choose Qwen. It only builds the stop-gate prompt and starts
-a Codex task. To make lightweight delegation reliable, add the Qwen rule to
+a Codex task. To make delegation reliable, add the Qwen rule to
 `stop-review-gate.md` in both the cache and source plugin copies:
 
 ```text
@@ -340,7 +393,7 @@ stop-gate Codex session, the prompt cannot make Codex call Qwen.
 
 ### Caveats
 
-- The lightweight cloud model should not perform the core generation or reasoning itself; breaking the delegation rules wastes API tokens
+- For subtasks that qualify as good offload candidates, the cloud model should not perform the core generation or reasoning itself; breaking the delegation rules wastes API tokens
 - Return `ask_qwen` / `ask_qwen_code` output directly unless a short operational note is needed
 - Requires both the MCP server (`mcp_qwen.py`) and the vLLM server to be running
 
