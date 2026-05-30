@@ -49,12 +49,12 @@ toward Qwen once the quota crosses a threshold — see
 
 | File                                      | Description                                                                                           |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `sourceme`                              | bash/sh env vars (`export`)                                                                         |
+| `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                            |
 | `proxy.py`                              | Transparent monitoring proxy (port 8000): captures Anthropic 5h-quota headers →`usage-status.json` |
 | `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                         |
 | `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                          |
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                      |
-| `sourceme`                              | bash/sh env vars (`export`)                                                                         |
-| `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                            |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                  |
 | `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                  |
 | `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)                                     |
