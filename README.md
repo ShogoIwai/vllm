@@ -270,7 +270,7 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 
 ---
 
-## Qwen mcp
+## Qwen Mcp
 
 ### Available tools
 
@@ -281,14 +281,16 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 
 ### Usage
 
-Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
+Just ask Claude Code or Codex normally — it will call Qwen automatically when the task is
+a good offload candidate. You can also be explicit: "ask Qwen to …".
 
-**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs, file-context tasks (Claude reads files and passes content to Qwen)
-**Not suitable for Qwen directly:** tasks requiring Qwen itself to access the filesystem, call tools, or maintain state across calls — for those, Claude Code reads/searches files with its own tools and passes only the relevant text to Qwen
+*When* and *how* to delegate (offload criteria, routing rules, handoff constraints) are
+defined in [Delegation Mode → Delegation Principle](#delegation-principle); this section
+only covers the server's implementation.
 
 > **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
 
-To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
+To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart the client.
 
 ### Token usage logging
 
@@ -315,24 +317,6 @@ the **cloud** side, `~/.claude/usage-status.json` (written by `proxy.py`) gives 
 Anthropic 5h-quota utilization — the trigger that drives quota-based delegation. Together
 they show both halves of the picture: how much cloud quota remains, and how much work was
 pushed to the local GPU in response.
-
-### Routing rules
-
-The offload decision is model-agnostic: it depends on the shape of the subtask, not on
-which GPT model is active (see [Delegation Principle](#delegation-principle)). Regardless
-of model, Codex reads/searches files locally, passes the relevant text to Qwen, applies
-the returned edits, and runs verification. Qwen does not access files by path; it receives
-only text provided by Codex.
-
-| Task type                                                                    | Tool to use                         |
-| ---------------------------------------------------------------------------- | ----------------------------------- |
-| Boilerplate/stub generation, language translation                            | `ask_qwen_code(language, prompt)` |
-| Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
-| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
-
-Model choice (and effort level) is a separate axis: a stronger model with higher effort
-reasons more deeply about the work Codex keeps, but the boundary of what is worth
-offloading stays the same.
 
 ---
 
