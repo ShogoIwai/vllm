@@ -53,7 +53,9 @@ toward Qwen once the quota crosses a threshold — see
 | `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                            |
 | `proxy.py`                              | Transparent monitoring proxy (port 8000): captures Anthropic 5h-quota headers →`usage-status.json` |
 | `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                         |
+| `quota_route.py`                        | Shared quota-routing helper (env, status/JSONL reads, threshold, guard text) for both emitters       |
 | `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                          |
+| `codex_quota_context.py`                | Codex launch-boundary emitter: plain-text quota guard from Anthropic status **or** Codex JSONL (no caller wired up yet) |
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                      |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                  |
 | `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                  |
@@ -220,6 +222,51 @@ injection), so it can never block prompt submission.
 | `QWEN_ROUTE_TOOLS`     | `ask_qwen, ask_qwen_code`     | MCP tool names recommended in the injected text          |
 | `QWEN_ROUTE_MAX_AGE`   | `21600` (6h; `0` disables)  | Ignore the status file when older than this many seconds |
 | `USAGE_STATUS_PATH`    | `~/.claude/usage-status.json` | Status file path (shared with `proxy.py`)              |
+
+### Codex side — launch-boundary prompt injection
+
+Claude Code can inject quota state on **every** prompt because it exposes a
+`UserPromptSubmit` hook. Codex has no equivalent prompt-submit hook, so its quota guard is
+emitted at the **launch boundary** instead (a CLI wrapper or the Codex plugin's prompt
+assembly), prepended to the Codex prompt. `codex_quota_context.py` produces that text.
+
+> **Not yet wired up.** `codex_quota_context.py` is implemented and testable, but nothing
+> calls it yet — the launch-boundary integration (CLI wrapper or Codex plugin prompt
+> assembly that runs `python3 vllm/codex_quota_context.py` and prepends its output) is
+> still TODO. Until that exists, the Codex guard is never injected at runtime.
+
+Unlike Claude Code, `codex_quota_context.py` reads **two** quota signals and emits the
+guard when **either** is at/above its threshold:
+
+- **Anthropic 5h quota** — `~/.claude/usage-status.json` (written by `proxy.py`,
+  `utilization_5h`, 0.0–1.0). Protects the shared Claude Code + Codex workflow.
+- **Codex/OpenAI 5h quota** — read on demand (no daemon) from the newest Codex session
+  rollout JSONL under `~/.codex/sessions/…/rollout-*.jsonl`, field
+  `rate_limits.primary.used_percent` (0–100, normalized to 0.0–1.0). `proxy.py` is **not**
+  involved and is **not** modified — Codex talks to OpenAI directly and never transits the
+  Anthropic proxy.
+
+Note the value lags by one turn (the JSONL `rate_limits` event is appended after Codex
+receives a response), the same practical property as the proxy-fed Anthropic signal. The
+emitter is fail-closed: missing / stale / corrupt inputs print nothing and it always exits
+`0`, so prompt assembly is never blocked.
+
+| Env var                       | Default                    | Purpose                                                            |
+| ----------------------------- | -------------------------- | ----------------------------------------------------------------- |
+| `CODEX_QWEN_ROUTE_THRESHOLD` | = `QWEN_ROUTE_THRESHOLD` | Codex 5h utilization (0.0–1.0) at/above which to force Qwen        |
+| `CODEX_SESSIONS_DIR`         | `~/.codex/sessions`      | Root scanned for the newest `rollout-*.jsonl`                      |
+
+(`QWEN_ROUTE_TOOLS` / `QWEN_ROUTE_MAX_AGE` / `USAGE_STATUS_PATH` are shared with the
+Claude Code hook.) Decision logic for both emitters lives in the shared `quota_route.py`
+helper.
+
+Caller status, at a glance:
+
+| File                       | Library / emitter | Called by                                                  |
+| -------------------------- | ----------------- | --------------------------------------------------------- |
+| `quota_route.py`         | shared library    | imported by both emitters (not run directly)              |
+| `usage_route_hook.py`    | emitter           | Claude Code, via `UserPromptSubmit` in `settings.json`   |
+| `codex_quota_context.py` | emitter           | **nothing yet** — launch-boundary integration is TODO     |
 
 ---
 
