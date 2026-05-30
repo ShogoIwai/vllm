@@ -7,7 +7,6 @@ The goal of this repository is to build a workflow that connects the following t
 | **Claude Code**  | AI coding assistant (CLI)                     |
 | **Codex**        | AI coding assistant (Claude Code plugin)      |
 | **vLLM + Qwen**  | Local LLM server (OpenAI-compatible API)      |
-| **sgpt / Cline** | Clients for standalone local LLM verification |
 
 ## Workflow Overview
 
@@ -26,9 +25,6 @@ Claude Code ──── review-gate integration ──── Codex
      │                                        mcp_qwen.py (same script used by Claude Code)
      │                                           │
      └─ MCP (stdio) ──── mcp_qwen.py ──── vLLM (:8001) ──── Qwen model
-                               ↑
-sgpt (CLI)      → OpenAI API ──┤
-Cline (VS Code) → OpenAI API ──┘
 ```
 
 **Reducing token / message consumption:**
@@ -47,9 +43,6 @@ captures the Anthropic 5-hour usage quota and a `UserPromptSubmit` hook biases r
 toward Qwen once the quota crosses a threshold — see
 [Quota-based delegation](#quota-based-delegation-5h-quota-monitoring).
 
-**Standalone local LLM verification:**
-sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server and Qwen model independently of Claude Code.
-
 ---
 
 ## Directory Contents
@@ -60,14 +53,166 @@ sgpt (CLI) and Cline (VS Code extension) can be used to verify the vLLM server a
 | `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                         |
 | `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                          |
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                      |
-| `start_vllm_qwen3_6_27b_awq.sh`         | vLLM startup — Qwen3.6-27B (128K ctx, cpu-offload 8 GB)                                              |
-| `start_vllm_qwen2_5_coder_14b_awq.sh`   | vLLM startup — Qwen2.5-Coder-14B (32K ctx, fast)                                                     |
 | `sourceme`                              | bash/sh env vars (`export`)                                                                         |
 | `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                            |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                  |
 | `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                  |
 | `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)                                     |
 | `README.md`                             | This file                                                                                             |
+
+---
+
+## Quick Start
+
+### 1. Install vLLM
+
+```bash
+sudo apt install nvidia-cuda-toolkit # if necessary
+pip install vllm==0.21.0
+```
+
+### 2. Authenticate with Hugging Face
+
+```bash
+pip install huggingface_hub
+huggingface-cli login
+```
+
+Get a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). The model downloads automatically on first `vllm serve`.
+
+### 3. Start vLLM Server
+
+```bash
+vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh   # default (30B, 128K ctx)
+```
+
+The server listens on `http://0.0.0.0:8001`.
+
+### 3b. Start the monitoring proxy (optional, for quota-based delegation)
+
+```bash
+python3 vllm/proxy.py   # listens on :8000, forwards to api.anthropic.com
+```
+
+Then `source vllm/sourceme` (sets `ANTHROPIC_BASE_URL=http://localhost:8000`) and start
+Claude Code so its API traffic flows through the proxy. See
+[Quota-based delegation](#quota-based-delegation-5h-quota-monitoring).
+
+## 4. Claude Code MCP Integration
+
+`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. Routing rules delegate subtasks that are good offload candidates (formulaic, localized, easy to verify) to Qwen, while Claude Code keeps file I/O, tool calls, orchestration, and verification. The offload decision is based on task shape, not on which model is active (see [Delegation Principle](#delegation-principle)).
+
+```
+Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B-A3B
+```
+
+### Setup (one-time)
+
+**1. Register the MCP server:**
+
+```bash
+claude mcp add -s user qwen-local python3 $REP/vllm/mcp_qwen.py
+```
+
+The `-s user` flag installs it globally (all projects). Omit it for project-local registration.
+
+**2. Verify:**
+
+Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `connected`.
+
+### Available tools
+
+| Tool              | Best for                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| `ask_qwen`      | General questions, code explanations, summaries, translations      |
+| `ask_qwen_code` | Boilerplate generation, stub implementations, language translation |
+
+### Usage
+
+Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
+
+**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs, file-context tasks (Claude reads files and passes content to Qwen)
+**Not suitable for Qwen directly:** tasks requiring Qwen itself to access the filesystem, call tools, or maintain state across calls — for those, Claude Code reads/searches files with its own tools and passes only the relevant text to Qwen
+
+> **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
+
+To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
+
+### Token usage logging
+
+Every Qwen call made through `mcp_qwen.py` appends one JSON line to `vllm/usage.log`
+(override the path with the `QWEN_USAGE_LOG` env var). Each record holds the timestamp,
+tool name, input character count, and `prompt` / `completion` / `total` token counts from
+the vLLM response, plus call latency. Logging is best-effort and never fails the call.
+
+Summarize consumption with the aggregation script:
+
+```bash
+python3 vllm/usage_report.py                 # daily × tool table (default ./usage.log)
+python3 vllm/usage_report.py --by day        # group by day only
+python3 vllm/usage_report.py --by tool       # group by tool only
+python3 vllm/usage_report.py --json          # machine-readable
+python3 vllm/usage_report.py path/to/usage.log
+```
+
+This is the measurement baseline for evaluating delegation/compression changes
+(before vs. after token comparison).
+
+`usage_report.py` measures the **local Qwen** side (how much work was offloaded). For
+the **cloud** side, `~/.claude/usage-status.json` (written by `proxy.py`) gives the live
+Anthropic 5h-quota utilization — the trigger that drives quota-based delegation. Together
+they show both halves of the picture: how much cloud quota remains, and how much work was
+pushed to the local GPU in response.
+
+## 5. Codex MCP Integration
+
+The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can then call
+`ask_qwen` / `ask_qwen_code` during its runs to offload work to the local GPU,
+reducing OpenAI API token consumption.
+
+```
+Codex CLI → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B-A3B
+```
+
+### Setup (one-time)
+
+**1. Register the MCP server:**
+
+```bash
+codex mcp add qwen-local -- python3 $REP/vllm/mcp_qwen.py
+```
+
+This writes a `[mcp_servers.qwen-local]` entry to `~/.codex/config.toml` globally.
+
+**2. Verify:**
+
+```bash
+codex mcp list
+# qwen-local  python3  .../mcp_qwen.py  -  enabled
+```
+
+**3. Keep delegation rules in `~/.codex/AGENTS.md`:**
+
+The `AGENTS.md` file is loaded by Codex at the start of each session. Keep the executable routing
+rules there; this README documents the setup and expected behavior.
+
+### Routing rules
+
+The offload decision is model-agnostic: it depends on the shape of the subtask, not on
+which GPT model is active (see [Delegation Principle](#delegation-principle)). Regardless
+of model, Codex reads/searches files locally, passes the relevant text to Qwen, applies
+the returned edits, and runs verification. Qwen does not access files by path; it receives
+only text provided by Codex.
+
+| Task type                                                                    | Tool to use                         |
+| ---------------------------------------------------------------------------- | ----------------------------------- |
+| Boilerplate/stub generation, language translation                            | `ask_qwen_code(language, prompt)` |
+| Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
+| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
+
+Model choice (and effort level) is a separate axis: a stronger model with higher effort
+reasons more deeply about the work Codex keeps, but the boundary of what is worth
+offloading stays the same.
 
 ---
 
@@ -150,14 +295,22 @@ injection), so it can never block prompt submission.
 | Script                                    | Model                                          | Context | VRAM  | Notes                                                   |
 | ----------------------------------------- | ---------------------------------------------- | ------- | ----- | ------------------------------------------------------- |
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | `QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ` | 128K    | 16 GB | **Default.** MoE 30B/3B-active, multi-file coding |
-| `start_vllm_qwen3_6_27b_awq.sh`         | `QuantTrio/Qwen3.6-27B-AWQ`                  | 128K    | 16 GB | General purpose, reasoning                              |
-| `start_vllm_qwen2_5_coder_14b_awq.sh`   | `Qwen/Qwen2.5-Coder-14B-Instruct-AWQ`        | 32K     | 16 GB | Lightweight, fast startup                               |
 
 ## Requirements
 
 - Python 3.9+, CUDA 12.x
 - NVIDIA GPU with ≥16 GB VRAM (RTX 4080 / 3090 / 4090 / A6000)
 - vLLM 0.21.0
+
+## Environment Variables
+
+Set in the startup scripts:
+
+- `CUDA_HOME=/usr`
+- `VLLM_USE_DEEP_GEMM=0`
+- `VLLM_USE_FLASHINFER_MOE_FP16=0`
+- `VLLM_USE_FLASHINFER_SAMPLER=0`
+- `OMP_NUM_THREADS=4`
 
 ## vLLM Server Options
 
@@ -166,6 +319,7 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 | Flag                             | Value                                   | Purpose                                                                                                                   |
 | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                                                                                                |
+| `--port`                       | `8001`                                | Server listen port (OpenAI-compatible API)                                                                               |
 | `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                                                                                              |
 | `--tool-call-parser`           | `qwen3_xml`                           | Qwen3 XML tool parser; avoids long-context `qwen3_coder` infinite `!` loop and `hermes` raw `<tool_call>` leakage |
 | `--reasoning-parser`           | `qwen3`                               | Separates `<think>` reasoning blocks from normal output and tool arguments                                              |
@@ -180,195 +334,6 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 | `--enable-prefix-caching`      | —                                      | Cache common prefix (effective for multi-file work)                                                                       |
 | `--enable-chunked-prefill`     | —                                      | Split long prefills into chunks for stable batching                                                                       |
 | `--max-num-batched-tokens`     | `4096`                                | Fixed at 4096 to avoid Mamba alignment error with chunked-prefill                                                         |
-
-## Environment Variables
-
-Set in the startup scripts:
-
-- `CUDA_HOME=/usr`
-- `VLLM_USE_DEEP_GEMM=0`
-- `VLLM_USE_FLASHINFER_MOE_FP16=0`
-- `VLLM_USE_FLASHINFER_SAMPLER=0`
-- `OMP_NUM_THREADS=4`
-
----
-
-## Quick Start
-
-### 1. Install vLLM
-
-```bash
-sudo apt install nvidia-cuda-toolkit # if necessary
-pip install vllm==0.21.0
-```
-
-### 2. Authenticate with Hugging Face
-
-```bash
-pip install huggingface_hub
-huggingface-cli login
-```
-
-Get a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). The model downloads automatically on first `vllm serve`.
-
-### 3. Start vLLM Server
-
-```bash
-vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh   # default (30B, 128K ctx)
-```
-
-The server listens on `http://0.0.0.0:8001`.
-
-### 3b. Start the monitoring proxy (optional, for quota-based delegation)
-
-```bash
-python3 vllm/proxy.py   # listens on :8000, forwards to api.anthropic.com
-```
-
-Then `source vllm/sourceme` (sets `ANTHROPIC_BASE_URL=http://localhost:8000`) and start
-Claude Code so its API traffic flows through the proxy. See
-[Quota-based delegation](#quota-based-delegation-5h-quota-monitoring).
-
-### 4. Configure sgpt (CLI option)
-
-sgpt reads `API_BASE_URL` from `~/.config/shell_gpt/.sgptrc` — make sure it is set to `http://localhost:8001/v1` (not `default`). `DEFAULT_MODEL` should also be set to the local model name.
-
-```bash
-# bash / sh
-source vllm/sourceme
-sgpt "hello"
-
-# tcsh
-source vllm/sourceme.csh
-sgpt "hello"
-```
-
-### 5. Configure Cline
-
-[Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) is a VS Code extension. Install it from the Extensions marketplace, then configure:
-
-| Field        | Value                                   |
-| ------------ | --------------------------------------- |
-| API Provider | `OpenAI Compatible`                   |
-| Base URL     | `http://localhost:8001/v1`            |
-| API Key      | `dummy`                               |
-| Model ID     | `local-model-qwen3-coder-30b-a3b-awq` |
-
-## 6. Claude Code MCP Integration (Recommended)
-
-`mcp_qwen.py` is an MCP server that exposes the local Qwen model as two tools callable directly from Claude Code sessions. Routing rules delegate subtasks that are good offload candidates (formulaic, localized, easy to verify) to Qwen, while Claude Code keeps file I/O, tool calls, orchestration, and verification. The offload decision is based on task shape, not on which model is active (see [Delegation Principle](#delegation-principle)).
-
-```
-Claude Code → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B-A3B
-```
-
-### Setup (one-time)
-
-**1. Register the MCP server:**
-
-```bash
-claude mcp add -s user qwen-local python3 $REP/vllm/mcp_qwen.py
-```
-
-The `-s user` flag installs it globally (all projects). Omit it for project-local registration.
-
-**2. Verify:**
-
-Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `connected`.
-
-### Available tools
-
-| Tool              | Best for                                                           |
-| ----------------- | ------------------------------------------------------------------ |
-| `ask_qwen`      | General questions, code explanations, summaries, translations      |
-| `ask_qwen_code` | Boilerplate generation, stub implementations, language translation |
-
-### Usage
-
-Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
-
-**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs, file-context tasks (Claude reads files and passes content to Qwen)
-**Not suitable for Qwen directly:** tasks requiring Qwen itself to access the filesystem, call tools, or maintain state across calls — for those, Claude Code reads/searches files with its own tools and passes only the relevant text to Qwen
-
-> **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
-
-To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
-
-### Token usage logging
-
-Every Qwen call made through `mcp_qwen.py` appends one JSON line to `vllm/usage.log`
-(override the path with the `QWEN_USAGE_LOG` env var). Each record holds the timestamp,
-tool name, input character count, and `prompt` / `completion` / `total` token counts from
-the vLLM response, plus call latency. Logging is best-effort and never fails the call.
-
-Summarize consumption with the aggregation script:
-
-```bash
-python3 vllm/usage_report.py                 # daily × tool table (default ./usage.log)
-python3 vllm/usage_report.py --by day        # group by day only
-python3 vllm/usage_report.py --by tool       # group by tool only
-python3 vllm/usage_report.py --json          # machine-readable
-python3 vllm/usage_report.py path/to/usage.log
-```
-
-This is the measurement baseline for evaluating delegation/compression changes
-(before vs. after token comparison).
-
-`usage_report.py` measures the **local Qwen** side (how much work was offloaded). For
-the **cloud** side, `~/.claude/usage-status.json` (written by `proxy.py`) gives the live
-Anthropic 5h-quota utilization — the trigger that drives quota-based delegation. Together
-they show both halves of the picture: how much cloud quota remains, and how much work was
-pushed to the local GPU in response.
-
-## 7. Codex MCP Integration (Recommended)
-
-The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can then call
-`ask_qwen` / `ask_qwen_code` during its runs to offload work to the local GPU,
-reducing OpenAI API token consumption.
-
-```
-Codex CLI → MCP (stdio) → mcp_qwen.py → vLLM :8001 → Qwen3-Coder-30B-A3B
-```
-
-### Setup (one-time)
-
-**1. Register the MCP server:**
-
-```bash
-codex mcp add qwen-local -- python3 $REP/vllm/mcp_qwen.py
-```
-
-This writes a `[mcp_servers.qwen-local]` entry to `~/.codex/config.toml` globally.
-
-**2. Verify:**
-
-```bash
-codex mcp list
-# qwen-local  python3  .../mcp_qwen.py  -  enabled
-```
-
-**3. Keep delegation rules in `~/.codex/AGENTS.md`:**
-
-The `AGENTS.md` file is loaded by Codex at the start of each session. Keep the executable routing
-rules there; this README documents the setup and expected behavior.
-
-### Routing rules
-
-The offload decision is model-agnostic: it depends on the shape of the subtask, not on
-which GPT model is active (see [Delegation Principle](#delegation-principle)). Regardless
-of model, Codex reads/searches files locally, passes the relevant text to Qwen, applies
-the returned edits, and runs verification. Qwen does not access files by path; it receives
-only text provided by Codex.
-
-| Task type                                                                    | Tool to use                         |
-| ---------------------------------------------------------------------------- | ----------------------------------- |
-| Boilerplate/stub generation, language translation                            | `ask_qwen_code(language, prompt)` |
-| Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
-| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
-
-Model choice (and effort level) is a separate axis: a stronger model with higher effort
-reasons more deeply about the work Codex keeps, but the boundary of what is worth
-offloading stays the same.
 
 ---
 
