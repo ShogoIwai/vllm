@@ -47,20 +47,20 @@ toward Qwen once the quota crosses a threshold — see
 
 ## Directory Contents
 
-| File                                      | Description                                                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `sourceme`                              | bash/sh env vars (`export`)                                                                         |
-| `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                            |
-| `proxy.py`                              | Transparent monitoring proxy (port 8000): captures Anthropic 5h-quota headers →`usage-status.json` |
-| `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                         |
-| `quota_route.py`                        | Shared quota-routing helper (env, status/JSONL reads, threshold, guard text) for both emitters       |
-| `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                          |
-| `codex_quota_context.py`                | Codex launch-boundary emitter: plain-text quota guard from Anthropic status **or** Codex JSONL, prepended by the Codex plugin task path |
-| `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                      |
-| `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                  |
-| `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                  |
-| `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)                                     |
-| `README.md`                             | This file                                                                                             |
+| File                                      | Description                                                                                                                                  |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sourceme`                              | bash/sh env vars (`export`)                                                                                                                |
+| `sourceme.csh`                          | tcsh env vars (`setenv`)                                                                                                                   |
+| `proxy.py`                              | Transparent monitoring proxy (port 8000): captures Anthropic 5h-quota headers →`usage-status.json`                                        |
+| `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                                                                |
+| `quota_route.py`                        | Shared quota-routing helper (env, status/JSONL reads, threshold, guard text) for both emitters                                               |
+| `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                                                                 |
+| `codex_quota_context.py`                | Codex launch-boundary emitter: plain-text quota guard from Anthropic status**or** Codex JSONL, prepended by the Codex plugin task path |
+| `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                                                             |
+| `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                                                         |
+| `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                                                         |
+| `usage_report.py`                       | Aggregates `usage.log` token records (daily / per-tool summary)                                                                            |
+| `README.md`                             | This file                                                                                                                                    |
 
 ---
 
@@ -243,7 +243,7 @@ Implementation in `codex-companion.mjs`:
 
 ```js
 const CODEX_QUOTA_CONTEXT_SCRIPT =
-  process.env.CODEX_QUOTA_CONTEXT_SCRIPT || "/mnt/hdd/edgeai/rep/vllm/codex_quota_context.py";
+  process.env.CODEX_QUOTA_CONTEXT_SCRIPT || "$REP/vllm/codex_quota_context.py";
 const CODEX_QUOTA_CONTEXT_TIMEOUT_MS = 1000;
 
 function readCodexQuotaContext() {
@@ -304,10 +304,10 @@ receives a response), the same practical property as the proxy-fed Anthropic sig
 emitter is fail-closed: missing / stale / corrupt inputs print nothing and it always exits
 `0`, so prompt assembly is never blocked.
 
-| Env var                       | Default                    | Purpose                                                            |
-| ----------------------------- | -------------------------- | ----------------------------------------------------------------- |
-| `CODEX_QWEN_ROUTE_THRESHOLD` | = `QWEN_ROUTE_THRESHOLD` | Codex 5h utilization (0.0–1.0) at/above which to force Qwen        |
-| `CODEX_SESSIONS_DIR`         | `~/.codex/sessions`      | Root scanned for the newest `rollout-*.jsonl`                      |
+| Env var                        | Default                   | Purpose                                                      |
+| ------------------------------ | ------------------------- | ------------------------------------------------------------ |
+| `CODEX_QWEN_ROUTE_THRESHOLD` | =`QWEN_ROUTE_THRESHOLD` | Codex 5h utilization (0.0–1.0) at/above which to force Qwen |
+| `CODEX_SESSIONS_DIR`         | `~/.codex/sessions`     | Root scanned for the newest `rollout-*.jsonl`              |
 
 (`QWEN_ROUTE_TOOLS` / `QWEN_ROUTE_MAX_AGE` / `USAGE_STATUS_PATH` are shared with the
 Claude Code hook.) Decision logic for both emitters lives in the shared `quota_route.py`
@@ -316,10 +316,10 @@ helper.
 Caller status, at a glance:
 
 | File                       | Library / emitter | Called by                                                  |
-| -------------------------- | ----------------- | --------------------------------------------------------- |
-| `quota_route.py`         | shared library    | imported by both emitters (not run directly)              |
-| `usage_route_hook.py`    | emitter           | Claude Code, via `UserPromptSubmit` in `settings.json`   |
-| `codex_quota_context.py` | emitter           | Codex plugin `codex-companion.mjs` task launch path       |
+| -------------------------- | ----------------- | ---------------------------------------------------------- |
+| `quota_route.py`         | shared library    | imported by both emitters (not run directly)               |
+| `usage_route_hook.py`    | emitter           | Claude Code, via `UserPromptSubmit` in `settings.json` |
+| `codex_quota_context.py` | emitter           | Codex plugin `codex-companion.mjs` task launch path      |
 
 ---
 
