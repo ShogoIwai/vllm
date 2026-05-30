@@ -55,7 +55,7 @@ toward Qwen once the quota crosses a threshold — see
 | `~/.claude/usage-status.json`           | Latest Anthropic 5h-quota snapshot (written by `proxy.py`;)                                         |
 | `quota_route.py`                        | Shared quota-routing helper (env, status/JSONL reads, threshold, guard text) for both emitters       |
 | `usage_route_hook.py`                   | `UserPromptSubmit` hook: forces Qwen delegation when 5h quota ≥ threshold                          |
-| `codex_quota_context.py`                | Codex launch-boundary emitter: plain-text quota guard from Anthropic status **or** Codex JSONL (no caller wired up yet) |
+| `codex_quota_context.py`                | Codex launch-boundary emitter: plain-text quota guard from Anthropic status **or** Codex JSONL, prepended by the Codex plugin task path |
 | `start_vllm_qwen3_coder_30b_a3b_awq.sh` | vLLM startup — Qwen3-Coder-30B-A3B (128K ctx, cpu-offload 2 GB)                                      |
 | `mcp_qwen.py`                           | MCP server — exposes Qwen as `ask_qwen` / `ask_qwen_code` tools                                  |
 | `usage.log`                             | JSONL token-usage log (auto-created by `mcp_qwen.py`; git-ignored)                                  |
@@ -230,10 +230,63 @@ Claude Code can inject quota state on **every** prompt because it exposes a
 emitted at the **launch boundary** instead (a CLI wrapper or the Codex plugin's prompt
 assembly), prepended to the Codex prompt. `codex_quota_context.py` produces that text.
 
-> **Not yet wired up.** `codex_quota_context.py` is implemented and testable, but nothing
-> calls it yet — the launch-boundary integration (CLI wrapper or Codex plugin prompt
-> assembly that runs `python3 vllm/codex_quota_context.py` and prepends its output) is
-> still TODO. Until that exists, the Codex guard is never injected at runtime.
+`codex_quota_context.py` is wired into the Codex plugin task launch path:
+`codex-companion.mjs` runs `python3 vllm/codex_quota_context.py` while assembling a
+Codex task prompt and prepends any emitted guard text. This covers normal Codex tasks,
+background tasks, resume prompts, and stop-review-gate tasks because they all pass through
+the shared task execution path.
+
+Implementation in `codex-companion.mjs`:
+
+1. Import `spawnSync` alongside the existing `spawn` import.
+2. Define a fail-closed helper near the top-level constants:
+
+```js
+const CODEX_QUOTA_CONTEXT_SCRIPT =
+  process.env.CODEX_QUOTA_CONTEXT_SCRIPT || "/mnt/hdd/edgeai/rep/vllm/codex_quota_context.py";
+const CODEX_QUOTA_CONTEXT_TIMEOUT_MS = 1000;
+
+function readCodexQuotaContext() {
+  try {
+    const result = spawnSync("python3", [CODEX_QUOTA_CONTEXT_SCRIPT], {
+      encoding: "utf8",
+      timeout: CODEX_QUOTA_CONTEXT_TIMEOUT_MS
+    });
+    if (result.status !== 0) {
+      return "";
+    }
+    return String(result.stdout || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function prependCodexQuotaContext(prompt) {
+  const text = String(prompt ?? "");
+  const context = readCodexQuotaContext();
+  return context ? `${context}\n\n${text}` : text;
+}
+```
+
+3. In `executeTaskRun()`, immediately before `runAppServerTurn(...)`, wrap both the
+   explicit task prompt and the resume default prompt:
+
+```js
+const prompt = request.prompt ? prependCodexQuotaContext(request.prompt) : request.prompt;
+const defaultPrompt = resumeThreadId ? prependCodexQuotaContext(DEFAULT_CONTINUE_PROMPT) : "";
+
+const result = await runAppServerTurn(workspaceRoot, {
+  resumeThreadId,
+  prompt,
+  defaultPrompt,
+  // ...
+});
+```
+
+Keep the runtime cache and source plugin copy in sync:
+
+- `~/.claude/plugins/cache/openai-codex/codex/1.0.3/scripts/codex-companion.mjs`
+- `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs`
 
 Unlike Claude Code, `codex_quota_context.py` reads **two** quota signals and emits the
 guard when **either** is at/above its threshold:
@@ -266,7 +319,7 @@ Caller status, at a glance:
 | -------------------------- | ----------------- | --------------------------------------------------------- |
 | `quota_route.py`         | shared library    | imported by both emitters (not run directly)              |
 | `usage_route_hook.py`    | emitter           | Claude Code, via `UserPromptSubmit` in `settings.json`   |
-| `codex_quota_context.py` | emitter           | **nothing yet** — launch-boundary integration is TODO     |
+| `codex_quota_context.py` | emitter           | Codex plugin `codex-companion.mjs` task launch path       |
 
 ---
 
