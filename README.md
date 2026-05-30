@@ -2,11 +2,11 @@
 
 The goal of this repository is to build a workflow that connects the following tools.
 
-| Tool                   | Role                                          |
-| ---------------------- | --------------------------------------------- |
-| **Claude Code**  | AI coding assistant (CLI)                     |
-| **Codex**        | AI coding assistant (Claude Code plugin)      |
-| **vLLM + Qwen**  | Local LLM server (OpenAI-compatible API)      |
+| Tool                  | Role                                     |
+| --------------------- | ---------------------------------------- |
+| **Claude Code** | AI coding assistant (CLI)                |
+| **Codex**       | AI coding assistant (Claude Code plugin) |
+| **vLLM + Qwen** | Local LLM server (OpenAI-compatible API) |
 
 ## Workflow Overview
 
@@ -120,50 +120,6 @@ The `-s user` flag installs it globally (all projects). Omit it for project-loca
 
 Inside Claude Code, run `/mcp` — `qwen-local` should appear with status `connected`.
 
-### Available tools
-
-| Tool              | Best for                                                           |
-| ----------------- | ------------------------------------------------------------------ |
-| `ask_qwen`      | General questions, code explanations, summaries, translations      |
-| `ask_qwen_code` | Boilerplate generation, stub implementations, language translation |
-
-### Usage
-
-Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
-
-**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs, file-context tasks (Claude reads files and passes content to Qwen)
-**Not suitable for Qwen directly:** tasks requiring Qwen itself to access the filesystem, call tools, or maintain state across calls — for those, Claude Code reads/searches files with its own tools and passes only the relevant text to Qwen
-
-> **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
-
-To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
-
-### Token usage logging
-
-Every Qwen call made through `mcp_qwen.py` appends one JSON line to `vllm/usage.log`
-(override the path with the `QWEN_USAGE_LOG` env var). Each record holds the timestamp,
-tool name, input character count, and `prompt` / `completion` / `total` token counts from
-the vLLM response, plus call latency. Logging is best-effort and never fails the call.
-
-Summarize consumption with the aggregation script:
-
-```bash
-python3 vllm/usage_report.py                 # daily × tool table (default ./usage.log)
-python3 vllm/usage_report.py --by day        # group by day only
-python3 vllm/usage_report.py --by tool       # group by tool only
-python3 vllm/usage_report.py --json          # machine-readable
-python3 vllm/usage_report.py path/to/usage.log
-```
-
-This is the measurement baseline for evaluating delegation/compression changes
-(before vs. after token comparison).
-
-`usage_report.py` measures the **local Qwen** side (how much work was offloaded). For
-the **cloud** side, `~/.claude/usage-status.json` (written by `proxy.py`) gives the live
-Anthropic 5h-quota utilization — the trigger that drives quota-based delegation. Together
-they show both halves of the picture: how much cloud quota remains, and how much work was
-pushed to the local GPU in response.
-
 ## 5. Codex MCP Integration
 
 The same `mcp_qwen.py` server can be registered with the Codex CLI. Codex can then call
@@ -190,29 +146,6 @@ This writes a `[mcp_servers.qwen-local]` entry to `~/.codex/config.toml` globall
 codex mcp list
 # qwen-local  python3  .../mcp_qwen.py  -  enabled
 ```
-
-**3. Keep delegation rules in `~/.codex/AGENTS.md`:**
-
-The `AGENTS.md` file is loaded by Codex at the start of each session. Keep the executable routing
-rules there; this README documents the setup and expected behavior.
-
-### Routing rules
-
-The offload decision is model-agnostic: it depends on the shape of the subtask, not on
-which GPT model is active (see [Delegation Principle](#delegation-principle)). Regardless
-of model, Codex reads/searches files locally, passes the relevant text to Qwen, applies
-the returned edits, and runs verification. Qwen does not access files by path; it receives
-only text provided by Codex.
-
-| Task type                                                                    | Tool to use                         |
-| ---------------------------------------------------------------------------- | ----------------------------------- |
-| Boilerplate/stub generation, language translation                            | `ask_qwen_code(language, prompt)` |
-| Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
-| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
-
-Model choice (and effort level) is a separate axis: a stronger model with higher effort
-reasons more deeply about the work Codex keeps, but the boundary of what is worth
-offloading stays the same.
 
 ---
 
@@ -319,7 +252,7 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 | Flag                             | Value                                   | Purpose                                                                                                                   |
 | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `--served-model-name`          | `local-model-qwen3-coder-30b-a3b-awq` | Model name exposed via API                                                                                                |
-| `--port`                       | `8001`                                | Server listen port (OpenAI-compatible API)                                                                               |
+| `--port`                       | `8001`                                | Server listen port (OpenAI-compatible API)                                                                                |
 | `--enable-auto-tool-choice`    | —                                      | Enable function/tool calling                                                                                              |
 | `--tool-call-parser`           | `qwen3_xml`                           | Qwen3 XML tool parser; avoids long-context `qwen3_coder` infinite `!` loop and `hermes` raw `<tool_call>` leakage |
 | `--reasoning-parser`           | `qwen3`                               | Separates `<think>` reasoning blocks from normal output and tool arguments                                              |
@@ -337,6 +270,72 @@ Key flags used in `start_vllm_qwen3_coder_30b_a3b_awq.sh`:
 
 ---
 
+## Qwen mcp
+
+### Available tools
+
+| Tool              | Best for                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| `ask_qwen`      | General questions, code explanations, summaries, translations      |
+| `ask_qwen_code` | Boilerplate generation, stub implementations, language translation |
+
+### Usage
+
+Just ask Claude Code normally — it will call Qwen automatically when the configured rules say the task should be delegated. You can also be explicit: "ask Qwen to …".
+
+**Good fit:** boilerplate, short snippet explanation, comment translation, test stubs, file-context tasks (Claude reads files and passes content to Qwen)
+**Not suitable for Qwen directly:** tasks requiring Qwen itself to access the filesystem, call tools, or maintain state across calls — for those, Claude Code reads/searches files with its own tools and passes only the relevant text to Qwen
+
+> **Requires** the vLLM server to be running (`vllm/start_vllm_qwen3_coder_30b_a3b_awq.sh`).
+
+To switch models, update `MODEL_ID` in `mcp_qwen.py` and restart Claude Code.
+
+### Token usage logging
+
+Every Qwen call made through `mcp_qwen.py` appends one JSON line to `vllm/usage.log`
+(override the path with the `QWEN_USAGE_LOG` env var). Each record holds the timestamp,
+tool name, input character count, and `prompt` / `completion` / `total` token counts from
+the vLLM response, plus call latency. Logging is best-effort and never fails the call.
+
+Summarize consumption with the aggregation script:
+
+```bash
+python3 vllm/usage_report.py                 # daily × tool table (default ./usage.log)
+python3 vllm/usage_report.py --by day        # group by day only
+python3 vllm/usage_report.py --by tool       # group by tool only
+python3 vllm/usage_report.py --json          # machine-readable
+python3 vllm/usage_report.py path/to/usage.log
+```
+
+This is the measurement baseline for evaluating delegation/compression changes
+(before vs. after token comparison).
+
+`usage_report.py` measures the **local Qwen** side (how much work was offloaded). For
+the **cloud** side, `~/.claude/usage-status.json` (written by `proxy.py`) gives the live
+Anthropic 5h-quota utilization — the trigger that drives quota-based delegation. Together
+they show both halves of the picture: how much cloud quota remains, and how much work was
+pushed to the local GPU in response.
+
+### Routing rules
+
+The offload decision is model-agnostic: it depends on the shape of the subtask, not on
+which GPT model is active (see [Delegation Principle](#delegation-principle)). Regardless
+of model, Codex reads/searches files locally, passes the relevant text to Qwen, applies
+the returned edits, and runs verification. Qwen does not access files by path; it receives
+only text provided by Codex.
+
+| Task type                                                                    | Tool to use                         |
+| ---------------------------------------------------------------------------- | ----------------------------------- |
+| Boilerplate/stub generation, language translation                            | `ask_qwen_code(language, prompt)` |
+| Comment/docstring translation, short explanations, summaries                 | `ask_qwen(prompt)`                |
+| Multi-step reasoning, root-cause analysis, architecture, cross-file analysis | Codex handles directly              |
+
+Model choice (and effort level) is a separate axis: a stronger model with higher effort
+reasons more deeply about the work Codex keeps, but the boundary of what is worth
+offloading stays the same.
+
+---
+
 ## Delegation Mode
 
 Both Claude Code and Codex act as orchestration layers that can route individual
@@ -345,6 +344,11 @@ across all cloud models — the same policy governs Claude Code and Codex regard
 which model or effort level is active.
 
 ### Delegation Principle
+
+This section is the **single source of truth** for both the Qwen offload criteria and
+the MCP call best practices. The client configuration files
+(`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) should reference this section rather than
+restate the rules, so all clients stay in sync.
 
 The key design point is that delegation should **not** be handled as a static model-switch policy.
 Instead, the decision should be based on the **task characteristics** and on whether moving work to
@@ -359,10 +363,12 @@ weaker/cheaper model does not mean "offload everything," and a stronger model do
 mean "offload nothing"; the offload boundary is the same in both cases and is determined
 only by task shape.
 
+#### Offload criteria (when to route to Qwen)
+
 **Good offload candidates**
 
 - Highly repetitive or formulaic work
-- Localized inputs with limited context
+- Localized inputs with limited context (one file, one function, a short passage)
 - Outputs that are easy to verify quickly
 - Tasks where small formatting or wording differences are acceptable
 - Boilerplate generation, stubs, short summaries, translation, and simple transformations
@@ -375,14 +381,55 @@ only by task shape.
 - Cases where preparing the handoff context is almost as expensive as doing the work directly
 - Anything requiring the delegate model to read files by path, call tools, or maintain state across calls
 
-This means the implementation should expose a clear, model-agnostic policy:
+The decision procedure is the same for every client and every model:
 
-- classify the task first
-- decide whether delegation reduces the primary agent's reasoning load
-- then choose whether to route the subtask to local Qwen
+1. classify the task by shape first
+2. decide whether delegation reduces the primary agent's reasoning load
+3. then choose whether to route the subtask to local Qwen
 
 That keeps the system portable across Claude Code, Codex, and future clients, because the offload
 decision is expressed in terms of work shape rather than in terms of a specific model family.
+
+#### Call best practices (how to call the MCP tools)
+
+These apply identically to every client (Claude Code, Codex, future clients).
+
+**Tool selection**
+
+| Tool                                | Use for                                                                      |
+| ----------------------------------- | ---------------------------------------------------------------------------- |
+| `ask_qwen(prompt)`                | Prose: Q&A, explanations, summaries, translation, comment/docstring rewrites |
+| `ask_qwen_code(language, prompt)` | Code: generation, refactoring, unit-test skeletons, stubs, code translation  |
+
+**Routing rules**
+
+1. **Pure Q&A / explanation / summary / translation** (good candidate)
+   → call `ask_qwen(prompt=<full request>)`; return the response verbatim.
+2. **Code generation / refactoring / unit tests** (formulaic, self-contained)
+   → determine the language from context; call `ask_qwen_code(language=<lang>, prompt=<request + required context>)`; return verbatim.
+3. **Tasks requiring file I/O** → the client reads/searches files itself, passes the
+   actual relevant content (never a path) to Qwen, then applies the result with its own
+   editing tools and verifies.
+4. **Multi-step tasks** → break into the smallest steps; offload each good candidate;
+   keep root-cause analysis and cross-file reasoning in the cloud model; the client owns
+   orchestration, context packaging, and validation.
+
+**Handoff constraints** — Qwen has no filesystem access, no tool access, and no memory
+across calls. Always pass the actual relevant text in the prompt; never ask Qwen to read a
+path, call a tool, or rely on a previous call.
+
+**What NOT to do when offloading**
+
+- Do not also generate the answer yourself for an offloaded subtask.
+- Do not restate Qwen's output in your own words when its output suffices.
+- Do not call Qwen and then layer your own commentary on top.
+- Do not force-offload a poor candidate (cross-file, root-cause, high-risk) just to save tokens.
+
+**Token budget** — see [Token Limits](#token-limits). In short: ≤ 2,048 output tokens per
+call, ~129K (~126K) effective input budget. No soft cap on prompt size for speed reasons —
+pack as much relevant context as the task needs. Split into multiple calls only when the
+input exceeds ~129K (one file per call, combine yourself) or the expected answer exceeds the
+2,048-token output limit (split the output across calls).
 
 ### Architecture
 
@@ -395,24 +442,14 @@ The cloud model handles orchestration: reading files, running searches, applying
 
 ### Configuration locations
 
-| Client      | Routing rules file      |
+The offload criteria and call best practices live only in the [Delegation Principle](#delegation-principle)
+above. The per-client files below do **not** restate them — they carry a pointer to that
+section plus any client-specific note (tool names, who owns file I/O):
+
+| Client      | Configuration file      |
 | ----------- | ----------------------- |
 | Claude Code | `~/.claude/CLAUDE.md` |
 | Codex       | `~/.codex/AGENTS.md`  |
-
-### Shared routing contract
-
-Keep executable rules in the client-specific configuration file. The common contract is:
-
-- The cloud client handles file I/O, searches, edits, tool calls, and verification.
-- Qwen receives only prompt text supplied by the cloud client; it cannot access paths, tools, or prior calls.
-- `ask_qwen` is for prose tasks such as Q&A, explanations, summaries, and translation.
-- `ask_qwen_code` is for code generation, refactoring, test skeletons, and code translation.
-- Classify each subtask by shape first, then offload it to Qwen only when it is a good
-  candidate (formulaic, localized, easy to verify). Keep root-cause analysis,
-  architecture decisions, and broad cross-file reasoning in the cloud model.
-- This contract is identical across all models and effort levels; the active model never
-  changes whether a given subtask is offloaded.
 
 ### Codex stop-review-gate delegation
 
