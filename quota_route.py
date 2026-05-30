@@ -35,6 +35,9 @@ Configuration (all optional, via environment):
   QWEN_ROUTE_MAX_AGE         max status-file age in seconds before it is
                              ignored as stale (default 21600 = 6h; 0 disables)
   CODEX_SESSIONS_DIR         Codex sessions root (default ~/.codex/sessions)
+  QWEN_ROUTE_FORCE           if set to a truthy value (1/true/yes/on), both
+                             emitters inject the prefer-Qwen guard
+                             unconditionally, regardless of quota signals
 """
 import json
 import os
@@ -60,6 +63,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
 def read_env() -> dict:
     """Resolve all configuration from the environment, with safe defaults."""
     threshold = _env_float("QWEN_ROUTE_THRESHOLD", DEFAULT_THRESHOLD)
@@ -75,6 +85,7 @@ def read_env() -> dict:
         "codex_threshold": codex_threshold,
         "max_age": _env_int("QWEN_ROUTE_MAX_AGE", DEFAULT_MAX_AGE),
         "tools": os.environ.get("QWEN_ROUTE_TOOLS", DEFAULT_TOOLS).strip(),
+        "force": _env_bool("QWEN_ROUTE_FORCE"),
         "codex_sessions_dir": Path(
             os.environ.get(
                 "CODEX_SESSIONS_DIR",
@@ -196,6 +207,22 @@ def load_codex_status(sessions_dir, max_age: int, now: float | None = None):
 # --------------------------------------------------------------------------
 # Guard text
 # --------------------------------------------------------------------------
+def build_forced_guard_text(tools: str) -> str:
+    """Prefer-Qwen guard injected unconditionally when QWEN_ROUTE_FORCE is set."""
+    return (
+        f"[QWEN ROUTE] Local-Qwen delegation is force-enabled "
+        f"(QWEN_ROUTE_FORCE). You MUST prefer the local Qwen model via the "
+        f"qwen-local MCP server ({tools}) as the FIRST choice for any code "
+        f"generation, debugging, refactoring, unit-test writing, or "
+        f"self-contained explanation/summary/translation subtask. Only keep a "
+        f"subtask in Claude when it genuinely requires cross-file reasoning, "
+        f"root-cause analysis, tool/filesystem orchestration, or carries high "
+        f"risk of silent bugs. Apply the existing task-shape delegation policy "
+        f"(CLAUDE.md / AGENTS.md), now biased aggressively toward local "
+        f"delegation."
+    )
+
+
 def build_guard_text(util: float, threshold: float, tools: str) -> str:
     """Build the quota guard instruction shared by both emitters."""
     pct = round(util * 100)
@@ -211,6 +238,20 @@ def build_guard_text(util: float, threshold: float, tools: str) -> str:
         f"risk of silent bugs. Apply the existing task-shape delegation policy "
         f"(CLAUDE.md / AGENTS.md), now biased aggressively toward local "
         f"delegation."
+    )
+
+
+def build_codex_forced_guard_text(tools: str) -> str:
+    """Plain-text prefer-Qwen guard for Codex when QWEN_ROUTE_FORCE is set."""
+    return (
+        f"[QWEN ROUTE] Local-Qwen delegation is force-enabled "
+        f"(QWEN_ROUTE_FORCE). Prefer local Qwen via the qwen-local MCP server "
+        f"({tools}) as the FIRST choice for code generation, debugging, "
+        f"refactoring, test writing, and self-contained "
+        f"explanation/summary/translation subtasks. Codex still owns file I/O, "
+        f"command execution, edits, verification, and final decisions. Do not "
+        f"force-offload cross-file reasoning, root-cause analysis, architecture "
+        f"decisions, or high-risk review conclusions."
     )
 
 

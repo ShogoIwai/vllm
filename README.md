@@ -222,6 +222,7 @@ injection), so it can never block prompt submission.
 | `QWEN_ROUTE_TOOLS`     | `ask_qwen, ask_qwen_code`     | MCP tool names recommended in the injected text          |
 | `QWEN_ROUTE_MAX_AGE`   | `21600` (6h; `0` disables)  | Ignore the status file when older than this many seconds |
 | `USAGE_STATUS_PATH`    | `~/.claude/usage-status.json` | Status file path (shared with `proxy.py`)              |
+| `QWEN_ROUTE_FORCE`     | _(unset)_                     | When truthy (`1`/`true`/`yes`/`on`), inject the prefer-Qwen guard unconditionally, bypassing all quota checks (shared with the Codex emitter) |
 
 ### Codex side — launch-boundary prompt injection
 
@@ -309,9 +310,10 @@ emitter is fail-closed: missing / stale / corrupt inputs print nothing and it al
 | `CODEX_QWEN_ROUTE_THRESHOLD` | =`QWEN_ROUTE_THRESHOLD` | Codex 5h utilization (0.0–1.0) at/above which to force Qwen |
 | `CODEX_SESSIONS_DIR`         | `~/.codex/sessions`     | Root scanned for the newest `rollout-*.jsonl`              |
 
-(`QWEN_ROUTE_TOOLS` / `QWEN_ROUTE_MAX_AGE` / `USAGE_STATUS_PATH` are shared with the
-Claude Code hook.) Decision logic for both emitters lives in the shared `quota_route.py`
-helper.
+(`QWEN_ROUTE_TOOLS` / `QWEN_ROUTE_MAX_AGE` / `USAGE_STATUS_PATH` / `QWEN_ROUTE_FORCE` are
+shared with the Claude Code hook. When `QWEN_ROUTE_FORCE` is truthy, this emitter also
+skips both quota reads and emits the prefer-Qwen guard unconditionally.) Decision logic for
+both emitters lives in the shared `quota_route.py` helper.
 
 Caller status, at a glance:
 

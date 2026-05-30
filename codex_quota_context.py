@@ -30,6 +30,14 @@ def main() -> int:
     try:
         cfg = quota_route.read_env()
 
+        # Force override: emit the prefer-Qwen guard regardless of quota.
+        if cfg["force"]:
+            sys.stdout.write(
+                quota_route.build_codex_forced_guard_text(cfg["tools"])
+            )
+            sys.stdout.write("\n")
+            return 0
+
         # Anthropic signal (0.0-1.0) vs QWEN_ROUTE_THRESHOLD.
         status = quota_route.load_status(cfg["status_path"])
         anthropic = quota_route.anthropic_utilization(status, cfg["max_age"])

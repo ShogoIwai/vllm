@@ -32,15 +32,18 @@ def main() -> int:
 
     try:
         cfg = quota_route.read_env()
-        status = quota_route.load_status(cfg["status_path"])
-        util = quota_route.anthropic_utilization(status, cfg["max_age"])
+        if cfg["force"]:
+            context = quota_route.build_forced_guard_text(cfg["tools"])
+        else:
+            status = quota_route.load_status(cfg["status_path"])
+            util = quota_route.anthropic_utilization(status, cfg["max_age"])
+            if util is None or util < cfg["threshold"]:
+                return 0  # no/insufficient signal -> inject nothing
+            context = quota_route.build_guard_text(
+                util, cfg["threshold"], cfg["tools"]
+            )
     except Exception:
         return 0
-
-    if util is None or util < cfg["threshold"]:
-        return 0  # no/insufficient signal -> inject nothing
-
-    context = quota_route.build_guard_text(util, cfg["threshold"], cfg["tools"])
     out = {
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
